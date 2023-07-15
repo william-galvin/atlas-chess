@@ -32,7 +32,7 @@ impl ChessMove {
         let promotion = match s_move.len() {
             5 => {
                 match s_move.chars().last().unwrap() {
-                    'k' => 4,
+                    'n' => 4,
                     'b' => 5,
                     'r' => 6,
                     'q' => 7,
@@ -40,7 +40,7 @@ impl ChessMove {
                 }
             },
             4 => 0,
-            _ => panic!("Unsupported move notation. Must be 4 or 5 (promotion) characters")
+            _ => panic!("Unsupported move notation. Must be 4 or 5 (promotion) characters. Found: {}", s_move)
         };
 
         let v_move: Vec<char> = s_move.chars().collect();
@@ -81,6 +81,18 @@ impl ChessMove {
         let file = n % 8;
         let rank = n / 8;
         format!("{}{}", (file as u8 + b'a') as char, rank + 1)
+    }
+
+    /// Returns rank (0-7)
+    #[inline]
+    pub fn rank(n: u16) -> u16 {
+        n / 8
+    }
+
+    /// Returns file (0-7)
+    #[inline]
+    pub fn file(n: u16) -> u16 {
+        n % 8
     }
 }
 
