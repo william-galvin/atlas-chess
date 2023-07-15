@@ -1,4 +1,5 @@
 use std::fmt;
+use crate::ChessMove;
 
 const START_WHITE_PAWN: u64 = 0xFF << 8;
 const START_WHITE_KNIGHT: u64 = 1 << 1 | 1 << 6;
@@ -21,7 +22,16 @@ const MOVE_MASK: u64 = 1;
 #[derive(PartialEq, Eq, Hash, Debug)]
 struct Board {
     pieces: [u64; 12],
-    info: u64
+    info: u64,
+    pieces_stacks: [Vec<u64>; 12],
+    move_stack: Vec<MoveRecord>
+}
+
+#[derive(PartialEq, Eq, Hash, Debug)]
+struct MoveRecord {
+    info: u64,
+    moved: u16 // if the bit at position i = 1,
+               // then piece type[i] moved
 }
 
 impl Board {
@@ -44,7 +54,9 @@ impl Board {
                 START_BLACK_QUEEN,
                 START_BLACK_KING
             ],
-            info: START_INFO
+            info: START_INFO,
+            pieces_stacks: Default::default(),
+            move_stack: Vec::new()
         }
     }
 
@@ -111,7 +123,9 @@ impl Board {
 
         Self {
             pieces,
-            info
+            info,
+            pieces_stacks: Default::default(),
+            move_stack: Vec::new()
         }
     }
 
@@ -122,6 +136,8 @@ impl Board {
         fen.split('/').rev().collect::<Vec<&str>>().join("/")
     }
 
+    /// Represent the current position in the
+    /// cannonical FEN (without the move counts)
     pub fn to_fen(&self) -> String {
         let mut fen = String::new();
 
@@ -195,6 +211,162 @@ impl Board {
 
         fen
     }
+
+    /// Update the current state of the board
+    /// to reflect the new move. Push the old state onto the stack.
+    /// **ASSUMES THAT MOVE IS LEGAL**. Undefined behavior if not.
+    pub fn push_move(&mut self, chess_move: ChessMove) {
+        let from = chess_move.from();
+        let to = chess_move.to();
+
+        let move_type = self.get_piece(from).unwrap();
+
+        let mut capture_type = usize::MAX;
+        let mut promotion_type = usize::MAX;
+        let mut castle_type = usize::MAX;
+
+        let mut en_pass = false;
+        let mut castle=  0;
+
+        match self.get_piece(to) {
+            Some(p) => {
+                capture_type = p;
+            },
+            None => {
+                if (move_type == 0 || move_type == 6) && ChessMove::file(from) != ChessMove::file(to) {
+                    en_pass = true;
+                }
+            }
+        }
+
+        if (move_type == 0 || move_type == 6) && (ChessMove::rank(to) == 0 || ChessMove::rank(to) == 7) {
+            promotion_type = move_type + (chess_move.special() as usize) - 3;
+        }
+
+        if (move_type == 5 || move_type == 11) && ChessMove::file(from) == 4 {
+            castle = ChessMove::file(to); // 6 if kingside, 2 if queenside
+        }
+        if castle == 6 || castle == 2 {
+            castle_type = move_type - 2;
+        }
+
+
+        let mut move_record = MoveRecord{ info: self.info, moved: 0 };
+        for p_type in [move_type, capture_type, castle_type, promotion_type] {
+            if p_type != usize::MAX {
+                self.pieces_stacks[p_type].push(self.pieces[p_type]);
+                move_record.moved |= 1 << p_type;
+            }
+        }
+        self.move_stack.push(move_record);
+
+
+        self.pieces[move_type] = Self::move_bit(self.pieces[move_type], from, to);
+
+        if capture_type != usize::MAX {
+            self.pieces[capture_type] = Self::delete_bit(self.pieces[capture_type], to);
+        }
+        if en_pass {
+            let (capture_type, offset) = if self.info & MOVE_MASK == 1 {
+                (6, to - 8)
+            } else {
+                (0, to + 8)
+            };
+            self.pieces[capture_type] = Self::delete_bit(self.pieces[capture_type], offset);
+        }
+
+        if castle_type != usize::MAX {
+            let offset =  if self.info & MOVE_MASK == 1 {
+                0
+            } else {
+                56
+            };
+            if ChessMove::file(to) == 6 {
+                self.pieces[castle_type] = Self::move_bit(self.pieces[castle_type], offset + 7, offset + 5);
+            } else {
+                self.pieces[castle_type] = Self::move_bit(self.pieces[castle_type], offset, offset + 3);
+            }
+        }
+
+        if promotion_type != usize::MAX {
+            self.pieces[move_type] = Self::delete_bit(self.pieces[move_type], to);
+            self.pieces[promotion_type] |= 1 << to;
+        }
+
+        let clear_enpass_mask = !(0b111111111111111100000);
+        self.info &= clear_enpass_mask;
+        if move_type == 0 && ChessMove::rank(from) + 2 == ChessMove::rank(to) {
+            self.info |= 1 << (13 + ChessMove::file(to));
+        }
+        if move_type == 6 && ChessMove::rank(from) == ChessMove::rank(to) + 2 {
+            self.info |= 1 << (5 + ChessMove::file(to));
+        }
+
+        if self.info & MOVE_MASK == 1 {
+            if self.info >> 1 & 1 == 1 {
+                if move_type == 5 || (move_type == 3 && from == 7) {
+                    self.info = Self::delete_bit(self.info, 1);
+                }
+            }
+            if self.info >> 2 & 1 == 1 {
+                if move_type == 5 || (move_type == 3 && from == 0) {
+                    self.info = Self::delete_bit(self.info, 2);
+                }
+            }
+        } else {
+            if self.info >> 3 & 1 == 1 {
+                if move_type == 11 || (move_type == 9 && from == 63) {
+                    self.info = Self::delete_bit(self.info, 3);
+                }
+            }
+            if self.info >> 4 & 1 == 1 {
+                if move_type == 11 || (move_type == 9 && from == 56) {
+                    self.info = Self::delete_bit(self.info, 4);
+                }
+            }
+        }
+
+        self.info ^= MOVE_MASK;
+    }
+
+    /// Returns the piece type of the piece on the given square
+    /// Returns None if no piece on that square
+    pub fn get_piece(&self, square: u16) -> Option<usize> {
+        for idx in 0..12 {
+            if (self.pieces[idx] >> square) & 1 == 1 {
+                return Some(idx)
+            }
+        }
+        None
+    }
+
+    fn move_bit(value: u64, source_index: u16, destination_index: u16) -> u64 {
+        let bit = (value >> source_index) & 1;
+        let cleared_value = value & !(1 << source_index);
+        cleared_value | (bit << destination_index)
+    }
+
+    fn delete_bit(value: u64, index: u16) -> u64 {
+        let mask = !(1 << index);
+        value & mask
+    }
+
+    // Compares if two fens are equal, ignoring move count.
+    // If self.fen has an enpassant move but other doesn't still passes.
+    // Doesn't go both ways though.
+    fn fen_eq(&self, other_fen: &str) -> bool {
+        let this_fen = self.to_fen();
+        let mut this = this_fen.split_whitespace();
+        let mut other = other_fen.split_whitespace();
+        for i in 0..3 {
+            if this.next().unwrap() != other.next().unwrap() {
+                return false;
+            }
+        }
+
+        let enpass_other = other.next().unwrap();
+        return enpass_other == "-" || enpass_other == this.next().unwrap();
+    }
 }
 
 impl fmt::Display for Board {
@@ -207,7 +379,7 @@ impl fmt::Display for Board {
 mod tests {
     use super::*;
     use std::io::{self, BufRead};
-    use std::fs::File;
+    use std::fs::{File, read_dir};
 
     #[test]
     fn test_reverse_fen() {
@@ -241,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_to_from_fen_fuzzy() -> io::Result<()> {
-        let file = File::open("src/board/test_fens.txt")?;
+        let file = File::open("tests/test_fens.txt")?;
         let reader = io::BufReader::new(file);
         for line_result in reader.lines() {
             let fen = line_result?;
@@ -251,4 +423,129 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn test_move_bit() {
+        assert_eq!(Board::move_bit(0b0010, 1, 2), 0b0100);
+        assert_eq!(Board::move_bit(0b1001, 0, 2), 0b1100);
+        assert_eq!(Board::move_bit(0b1011, 3, 1), 0b0011);
+    }
+
+    #[test]
+    fn test_push_move_basic() {
+        let mut board = Board::new();
+        let cm = ChessMove::from_str("e2e4");
+        board.push_move(cm);
+        assert!(board.fen_eq("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -"));
+
+        board.push_move((ChessMove::from_str("e7e5")));
+        assert!(board.fen_eq("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6"));
+
+        board.push_move((ChessMove::from_str("f2f4")));
+        assert_eq!("rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b KQkq f3", board.to_fen());
+
+        board.push_move((ChessMove::from_str("d7d6")));
+        assert_eq!("rnbqkbnr/ppp2ppp/3p4/4p3/4PP2/8/PPPP2PP/RNBQKBNR w KQkq -", board.to_fen());
+
+        board.push_move((ChessMove::from_str("g1f3")));
+        assert_eq!("rnbqkbnr/ppp2ppp/3p4/4p3/4PP2/5N2/PPPP2PP/RNBQKB1R b KQkq -", board.to_fen());
+    }
+
+    #[test]
+    fn test_move_castle_king_white() {
+        let mut board = Board::from_fen("r2qkbnr/ppp2ppp/2np4/4p3/2B1PPb1/5N2/PPPP2PP/RNBQK2R w KQkq - 4 5");
+        board.push_move((ChessMove::from_str("e1g1")));
+        assert_eq!("r2qkbnr/ppp2ppp/2np4/4p3/2B1PPb1/5N2/PPPP2PP/RNBQ1RK1 b kq -", board.to_fen());
+    }
+
+    #[test]
+    fn test_castle_queen_white() {
+        let mut board = Board::from_fen("rnbqkbnr/pp2p2p/2p3p1/3p2p1/2PP4/2N5/PP1QPPPP/R3KBNR w KQkq - ");
+        board.push_move((ChessMove::from_str("e1c1")));
+        assert_eq!("rnbqkbnr/pp2p2p/2p3p1/3p2p1/2PP4/2N5/PP1QPPPP/2KR1BNR b kq -", board.to_fen());
+    }
+
+    #[test]
+    fn test_castle_king_black() {
+        let mut board = Board::from_fen("rnbqk2r/pp5p/2p1pnp1/3p2p1/1bPP4/1PN1PN2/P2Q1PPP/2KR1B1R b kq -");
+        board.push_move((ChessMove::from_str("e8g8")));
+        assert_eq!("rnbq1rk1/pp5p/2p1pnp1/3p2p1/1bPP4/1PN1PN2/P2Q1PPP/2KR1B1R w - -", board.to_fen());
+    }
+
+    #[test]
+    fn test_castle_queen_black() {
+        let mut board = Board::from_fen("r3kbnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R b KQkq - ");
+        board.push_move((ChessMove::from_str("e8c8")));
+        assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R w KQ -", board.to_fen());
+    }
+
+    #[test]
+    fn test_capture_black() {
+        let mut board = Board::from_fen("2kr1bnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R w KQ -");
+        board.push_move((ChessMove::from_str("f4g5")));
+        assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P1b1/3P1N1P/PPP3P1/RNBQK2R b KQ -", board.to_fen());
+    }
+
+    #[test]
+    fn test_capture_white() {
+        let mut board = Board::from_fen("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P1b1/3P1N1P/PPP3P1/RNBQK2R b KQ -");
+        board.push_move((ChessMove::from_str("g4h3")));
+        assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P3/3P1N1b/PPP3P1/RNBQK2R w KQ -", board.to_fen());
+    }
+
+    #[test]
+    fn test_enpassant_black() {
+        let mut board = Board::from_fen("rnbqkbnr/pppp2pp/5p2/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6");
+        board.push_move((ChessMove::from_str("d5e6")));
+        assert_eq!("rnbqkbnr/pppp2pp/4Pp2/8/8/8/PPP1PPPP/RNBQKBNR b KQkq -", board.to_fen());
+    }
+
+    #[test]
+    fn test_enpassant_white() {
+        let mut board = Board::from_fen("rnbqkbnr/pp1p2pp/4Pp2/8/1Pp5/4P3/P1P2PPP/RNBQKBNR b KQkq b3");
+        board.push_move((ChessMove::from_str("c4b3")));
+        assert_eq!("rnbqkbnr/pp1p2pp/4Pp2/8/8/1p2P3/P1P2PPP/RNBQKBNR w KQkq -", board.to_fen());
+    }
+
+    #[test]
+    fn test_promote_white() {
+        for p in ['n', 'b', 'r', 'q'] {
+            let mut board = Board::from_fen("rnbq1bnr/pp1P1kpp/5p2/8/8/1p2P3/P1P2PPP/RNBQKBNR w KQ - ");
+            let move_ = format!("d7c8{}", p);
+            board.push_move((ChessMove::from_str(&move_)));
+            assert_eq!(format!("rn{}q1bnr/pp3kpp/5p2/8/8/1p2P3/P1P2PPP/RNBQKBNR b KQ -", p.to_uppercase()), board.to_fen());
+        }
+    }
+
+    #[test]
+    fn test_promote_black() {
+        for p in ['n', 'b', 'r', 'q'] {
+            let mut board = Board::from_fen("rnq2bnr/pp3kpp/5p2/8/P7/N3P3/1pP2PPP/R1BQKBNR b KQ - ");
+            let move_ = format!("b2b1{}", p);
+            board.push_move(ChessMove::from_str(&move_));
+            assert_eq!(format!("rnq2bnr/pp3kpp/5p2/8/P7/N3P3/2P2PPP/R{}BQKBNR w KQ -", p), board.to_fen());
+        }
+    }
+
+    #[test]
+    fn test_push_fuzzy() -> io::Result<()> {
+        let entries = read_dir("tests/random_games")?;
+        for entry in entries {
+            let entry = entry?;
+            let file = File::open(entry.path())?;
+            let reader = io::BufReader::new(file);
+            let mut board = Board::new();
+            let mut lines = reader.lines();
+            while let Some(line1) = lines.next() {
+                if let Some(line2) = lines.next() {
+                    let chess_move = line1?;
+                    let target_fen = line2?;
+                    board.push_move(ChessMove::from_str(&chess_move));
+                    assert!(board.fen_eq(&target_fen));
+                }
+            }
+        }
+        Ok(())
+    }
+
 }
