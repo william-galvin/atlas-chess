@@ -329,6 +329,19 @@ impl Board {
         self.info ^= MOVE_MASK;
     }
 
+    /// Returns board to state of previous move
+    /// Assumes that there is at least one previous move,
+    /// panics if not
+    pub fn pop_move(&mut self) {
+        let move_record = self.move_stack.pop().unwrap();
+        self.info = move_record.info;
+        for piece_type in 0..12 {
+            if move_record.moved >> piece_type & 1 == 1 {
+                self.pieces[piece_type] = self.pieces_stacks[piece_type].pop().unwrap();
+            }
+        }
+    }
+
     /// Returns the piece type of the piece on the given square
     /// Returns None if no piece on that square
     pub fn get_piece(&self, square: u16) -> Option<usize> {
@@ -528,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn test_push_fuzzy() -> io::Result<()> {
+    fn test_push_pop_fuzzy() -> io::Result<()> {
         let entries = read_dir("tests/random_games")?;
         for entry in entries {
             let entry = entry?;
@@ -538,10 +551,17 @@ mod tests {
             let mut lines = reader.lines();
             while let Some(line1) = lines.next() {
                 if let Some(line2) = lines.next() {
+                    let old_fen = board.to_fen();
+
                     let chess_move = line1?;
                     let target_fen = line2?;
                     board.push_move(ChessMove::from_str(&chess_move));
                     assert!(board.fen_eq(&target_fen));
+
+                    board.pop_move();
+                    assert!(board.fen_eq(&old_fen));
+
+                    board.push_move(ChessMove::from_str(&chess_move));
                 }
             }
         }
