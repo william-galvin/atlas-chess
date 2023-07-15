@@ -148,13 +148,13 @@ impl Board {
             for file in 0..8 {
                 let square = 8 * rank + file;
                 let mut found = false;
-                for piece in 0..12 {
+                for (piece, symbol) in symbols.iter().enumerate() {
                     let bitboard = self.pieces[piece];
                     if bitboard >> square & 1 == 1 {
                         if empty_spaces != 0{
                             fen = format!("{}{}", fen, empty_spaces);
                         }
-                        fen.push(symbols[piece]);
+                        fen.push(*symbol);
                         empty_spaces = 0;
                         found = true;
                         break
@@ -169,7 +169,7 @@ impl Board {
             }
             fen.push('/');
         }
-        fen = String::from(Self::reverse_fen(&fen));
+        fen = Self::reverse_fen(&fen);
         fen.remove(0);
 
         fen.push_str(match self.info & MOVE_MASK {
@@ -303,26 +303,18 @@ impl Board {
         }
 
         if self.info & MOVE_MASK == 1 {
-            if self.info >> 1 & 1 == 1 {
-                if move_type == 5 || (move_type == 3 && from == 7) {
-                    self.info = Self::delete_bit(self.info, 1);
-                }
+            if self.info >> 1 & 1 == 1 && (move_type == 5 || (move_type == 3 && from == 7)) {
+                self.info = Self::delete_bit(self.info, 1);
             }
-            if self.info >> 2 & 1 == 1 {
-                if move_type == 5 || (move_type == 3 && from == 0) {
-                    self.info = Self::delete_bit(self.info, 2);
-                }
+            if self.info >> 2 & 1 == 1 && (move_type == 5 || (move_type == 3 && from == 0)) {
+                self.info = Self::delete_bit(self.info, 2);
             }
         } else {
-            if self.info >> 3 & 1 == 1 {
-                if move_type == 11 || (move_type == 9 && from == 63) {
-                    self.info = Self::delete_bit(self.info, 3);
-                }
+            if self.info >> 3 & 1 == 1 && (move_type == 11 || (move_type == 9 && from == 63)) {
+                self.info = Self::delete_bit(self.info, 3);
             }
-            if self.info >> 4 & 1 == 1 {
-                if move_type == 11 || (move_type == 9 && from == 56) {
-                    self.info = Self::delete_bit(self.info, 4);
-                }
+            if self.info >> 4 & 1 == 1 && (move_type == 11 || (move_type == 9 && from == 56)) {
+                self.info = Self::delete_bit(self.info, 4);
             }
         }
 
@@ -367,6 +359,7 @@ impl Board {
     // Compares if two fens are equal, ignoring move count.
     // If self.fen has an enpassant move but other doesn't still passes.
     // Doesn't go both ways though.
+    #[cfg(test)]
     fn fen_eq(&self, other_fen: &str) -> bool {
         let this_fen = self.to_fen();
         let mut this = this_fen.split_whitespace();
