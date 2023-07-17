@@ -19,19 +19,27 @@ const START_INFO: u64 = 0b11111;
 
 const MOVE_MASK: u64 = 1;
 
-#[derive(PartialEq, Eq, Hash, Debug)]
-struct Board {
-    pieces: [u64; 12],
-    info: u64,
+pub const WHITE: u64 = 1;
+pub const BLACK: u64 = 0;
+pub const KING: usize = 5;
+pub const QUEEN: usize = 4;
+pub const ROOK: usize = 3;
+pub const BISHOP: usize = 2;
+pub const KNIGHT: usize = 1;
+pub const PAWN: usize = 0;
+
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
+pub struct Board {
+    pub pieces: [u64; 12],
+    pub info: u64,
     pieces_stacks: [Vec<u64>; 12],
     move_stack: Vec<MoveRecord>
 }
 
-#[derive(PartialEq, Eq, Hash, Debug)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 struct MoveRecord {
     info: u64,
-    moved: u16 // if the bit at position i = 1,
-               // then piece type[i] moved
+    moved: u16
 }
 
 impl Board {
@@ -90,7 +98,6 @@ impl Board {
             pieces[idx] |= 1 << square;
             square += 1;
         }
-        assert_eq!(square, 64);
 
         let mut info = 0u64;
 
@@ -115,8 +122,8 @@ impl Board {
         if en_pass != "-" {
             let file = en_pass.chars().next().unwrap() as u8 - b'a';
             info |= 1 << (file + match info & MOVE_MASK {
-                1 => 5,
-                0 => 13,
+                WHITE => 5,
+                BLACK => 13,
                 _ => panic!()
             });
         }
@@ -173,8 +180,8 @@ impl Board {
         fen.remove(0);
 
         fen.push_str(match self.info & MOVE_MASK {
-            1 => " w ",
-            0 => " b ",
+            WHITE => " w ",
+            BLACK => " b ",
             _ => panic!()
         });
 
@@ -192,7 +199,7 @@ impl Board {
         });
         fen.push(' ');
 
-        let (offset, rank) = if self.info & MOVE_MASK == 1 {
+        let (offset, rank) = if self.info & MOVE_MASK == WHITE {
             (5, 6)
         } else {
             (13, 3)
@@ -267,7 +274,7 @@ impl Board {
             self.pieces[capture_type] = Self::delete_bit(self.pieces[capture_type], to);
         }
         if en_pass {
-            let (capture_type, offset) = if self.info & MOVE_MASK == 1 {
+            let (capture_type, offset) = if self.info & MOVE_MASK == WHITE {
                 (6, to - 8)
             } else {
                 (0, to + 8)
@@ -276,7 +283,7 @@ impl Board {
         }
 
         if castle_type != usize::MAX {
-            let offset =  if self.info & MOVE_MASK == 1 {
+            let offset =  if self.info & MOVE_MASK == WHITE {
                 0
             } else {
                 56
@@ -302,7 +309,7 @@ impl Board {
             self.info |= 1 << (5 + ChessMove::file(to));
         }
 
-        if self.info & MOVE_MASK == 1 {
+        if self.info & MOVE_MASK == WHITE {
             if self.info >> 1 & 1 == 1 && (move_type == 5 || (move_type == 3 && from == 7)) {
                 self.info = Self::delete_bit(self.info, 1);
             }
@@ -372,6 +379,32 @@ impl Board {
 
         let enpass_other = other.next().unwrap();
         return enpass_other == "-" || enpass_other == this.next().unwrap();
+    }
+
+    /// Returns WHITE or BLACK (ints)
+    /// corresponding to whose move it is
+    pub fn to_move(&self) -> u64 {
+        self.info & MOVE_MASK
+    }
+
+    /// True if white can castle king side, false otherwise
+    pub fn white_king_castle(&self) -> bool {
+        self.info >> 1 & 1 == 1
+    }
+
+    /// True if black can castle king side, false otherwise
+    pub fn black_king_castle(&self) -> bool {
+        self.info >> 3 & 1 == 1
+    }
+
+    /// True if white can castle queen side, false otherwise
+    pub fn white_queen_castle(&self) -> bool {
+        self.info >> 2 & 1 == 1
+    }
+
+    /// True if black can castle queen side, false otherwise
+    pub fn black_queen_castle(&self) -> bool {
+        self.info >> 4 & 1 == 1
     }
 }
 

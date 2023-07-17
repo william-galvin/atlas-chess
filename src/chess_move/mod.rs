@@ -4,6 +4,7 @@ const FROM_MASK: u16 =    0b0000000000111111;
 const TO_MASK: u16 =      0b0000111111000000;
 const SPECIAL_MASK: u16 = 0b1111000000000000;
 
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct ChessMove {
     data: u16
 }

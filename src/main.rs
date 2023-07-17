@@ -1,6 +1,7 @@
 mod chess_move;
 mod random;
 mod board;
+mod move_generator;
 
 use chess_move::ChessMove;
 

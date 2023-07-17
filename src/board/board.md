@@ -40,10 +40,3 @@ And the process for going back one move:
 
 Note that the current board state is *not* stored on the 
 stacks. Thus, the initial board has no previous positions.
-
-## TODO
-
-- Implement `push_move` and `pop_move` (or does this belong
-in a game manager class?)
-    - Don't need to keep track of 12 new number for each move!
-- Implement fmt display and debug stuff
