@@ -78,7 +78,7 @@ fn king_moves(board: &Board, self_offset: usize, self_mask: u64, opp_mask: u64, 
         if board.black_king_castle() && can_castle(board, vec![61, 62], self_mask, opp_mask) {
             moves.push(ChessMove::new(60, 62, 3));
         }
-        if board.black_king_castle() && can_castle(board, vec![58, 59], self_mask, opp_mask) {
+        if board.black_queen_castle() && can_castle(board, vec![58, 59], self_mask, opp_mask) {
             moves.push(ChessMove::new(60, 58, 3));
         }
     }
@@ -417,5 +417,5 @@ mod tests {
         println!("Time taken: {} seconds \t\t\t{}", start.elapsed().as_secs(), lens);
         Ok(())
     }
-    
+
 }
