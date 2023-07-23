@@ -248,6 +248,7 @@ impl Board {
             None => {
                 if (move_type == 0 || move_type == 6) && ChessMove::file(from) != ChessMove::file(to) {
                     en_pass = true;
+                    capture_type = 6 - move_type;
                 }
             }
         }
@@ -329,6 +330,18 @@ impl Board {
             if self.info >> 4 & 1 == 1 && (move_type == 11 || (move_type == 9 && from == 56)) {
                 self.info = Self::delete_bit(self.info, 4);
             }
+        }
+        if to == 7 && capture_type == ROOK {
+            self.info = Self::delete_bit(self.info, 1);
+        }
+        if to == 0 && capture_type == ROOK {
+            self.info = Self::delete_bit(self.info, 2);
+        }
+        if to == 63 && capture_type == ROOK + 6 {
+            self.info = Self::delete_bit(self.info, 3);
+        }
+        if to == 56 && capture_type == ROOK + 6 {
+            self.info = Self::delete_bit(self.info, 4);
         }
 
         self.info ^= MOVE_MASK;
@@ -603,4 +616,21 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_enpass_push_pop() {
+        let fen = "r3k2r/p1ppqpb1/1n2pnp1/1b1PN3/Pp2P3/2N2Q1p/1PPBBPPP/1R2K2R b Kkq a3";
+        let mut board = Board::from_fen(fen);
+        board.push_move(ChessMove::from_str("b4a3"));
+        board.pop_move();
+        assert!(board.fen_eq(fen));
+    }
+
+    #[test]
+    fn test_capture_rook_castling() {
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q2/1PPBBPpP/1R2K2R b Kkq - 0 2";
+        let mut board = Board::from_fen(fen);
+        board.push_move(ChessMove::from_str("g2h1b"));
+        println!("fen is\n{}", board.to_fen());
+        assert!(board.fen_eq("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q2/1PPBBP1P/1R2K2b w kq -"));
+    }
 }

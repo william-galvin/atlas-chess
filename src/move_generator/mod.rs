@@ -566,27 +566,36 @@ mod tests {
     }
 
     #[test]
-    fn test_move_generator() {
-        let mg = MoveGenerator::new();
-        let mut board = Board::from_fen("rnbqkb1r/pppppppp/8/7B/6n1/4P3/PPPP1PPP/RN2K1NR w KQkq - 3 3");
-        dbg!(mg.moves(&mut board));
-    }
-
-    #[test]
-    fn test_move_generator2() {
+    fn test_perft() {
         let mg = MoveGenerator::new();
 
-        let mut expected = [20, 400, 8902, 197281, 4865609];
+        let expected = [20, 400, 8902, 197281, 4865609];
         for i in 1..=5 {
             let mut board = Board::new();
             assert_eq!(perft(i, &mut board, &mg), expected[i as usize - 1]);
         }
+    }
 
-        expected = [48, 2039, 97862, 4085603, 193690690	];
+    #[test]
+    fn test_perft2() {
+        let mg = MoveGenerator::new();
+
+        let expected = [48, 2039, 97862, 4085603, 193690690];
         for i in 1..=5 {
             let mut board = Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ");
             assert_eq!(perft(i, &mut board, &mg), expected[i as usize - 1]);
         }
 
+    }
+
+    #[test]
+    fn test_perft6() {
+        let mg = MoveGenerator::new();
+
+        let expected = [46, 2079, 89890, 3894594, 164075551];
+        for i in 1..=5 {
+            let mut board = Board::from_fen("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ");
+            assert_eq!(perft(i, &mut board, &mg), expected[i as usize - 1]);
+        }
     }
 }
