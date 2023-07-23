@@ -1,5 +1,6 @@
 use std::fmt;
 use crate::ChessMove;
+use std::ops::Range;
 
 const START_WHITE_PAWN: u64 = 0xFF << 8;
 const START_WHITE_KNIGHT: u64 = 1 << 1 | 1 << 6;
@@ -226,7 +227,12 @@ impl Board {
         let from = chess_move.from();
         let to = chess_move.to();
 
-        let move_type = self.get_piece(from).unwrap();
+        let mut blockers = 0u64;
+        for i in 0..12 {
+            blockers |= self.pieces[i];
+        }
+
+        let move_type = self.get_piece(from, 0..12, blockers).unwrap();
 
         let mut capture_type = usize::MAX;
         let mut promotion_type = usize::MAX;
@@ -235,7 +241,7 @@ impl Board {
         let mut en_pass = false;
         let mut castle=  0;
 
-        match self.get_piece(to) {
+        match self.get_piece(to, if move_type < 6 {6..12} else {0..6}, blockers) {
             Some(p) => {
                 capture_type = p;
             },
@@ -343,8 +349,11 @@ impl Board {
 
     /// Returns the piece type of the piece on the given square
     /// Returns None if no piece on that square
-    pub fn get_piece(&self, square: u16) -> Option<usize> {
-        for idx in 0..12 {
+    pub fn get_piece(&self, square: u16, range: Range<usize>, blockers: u64) -> Option<usize> {
+        if blockers >> square & 1 == 0 {
+            return None;
+        }
+        for idx in range {
             if (self.pieces[idx] >> square) & 1 == 1 {
                 return Some(idx)
             }

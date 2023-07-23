@@ -99,21 +99,18 @@ impl MoveGenerator {
 
 
         let mut moves = Vec::new();
-        for square in 0..64 {
-            if board.pieces[offset + piece_type] >> square & 1 == 1  ||  board.pieces[offset + QUEEN] >> square & 1 == 1 {
-                let blockers = (self_mask | opp_mask) & if piece_type == ROOK {
-                    get_rook_cross(square)
-                } else {
-                    get_bishop_cross(square)
-                };
+        let piece_mask = board.pieces[offset + piece_type] | board.pieces[offset + QUEEN];
+        for square in get_bits(piece_mask) {
+            let blockers = (self_mask | opp_mask) & if piece_type == ROOK {
+                get_rook_cross(square)
+            } else {
+                get_bishop_cross(square)
+            };
 
-                let key = (blockers as usize).wrapping_mul(magics[square]) >> 52;
-                let _moves = self.sliding_moves[square * 2 + idx_offset][key] & !(self_mask);
-                for to in 0..64 {
-                    if _moves >> to & 1 == 1 {
-                        moves.push(ChessMove::new(square as u16, to, 0))
-                    }
-                }
+            let key = (blockers as usize).wrapping_mul(magics[square]) >> 52;
+            let _moves = self.sliding_moves[square * 2 + idx_offset][key] & !(self_mask);
+            for to in get_bits(_moves) {
+                moves.push(ChessMove::new(square as u16, to as u16, 0))
             }
         }
         moves
@@ -182,19 +179,16 @@ fn can_castle(board: &Board, squares: Vec<u16>, self_mask: u64, opp_mask: u64, q
 /// is roughly the same for both
 fn get_k_moves(board: &Board, bitboard: u64, self_mask: u64, directions: [i16; 8], threshold: i16) -> Vec<ChessMove> {
     let mut moves = Vec::new();
-    for i in 0..64 {
-        if bitboard >> i & 1 != 1 {
-            continue;
-        }
+    for i in get_bits(bitboard) {
         for dir in directions {
-            let to = match validate_move(i, dir, threshold) {
+            let to = match validate_move(i as u16, dir, threshold) {
                 Some(t) => t,
                 None => continue
             };
             if self_mask >> to & 1 == 1 {
                 continue;
             }
-            moves.push(ChessMove::new(i, to, 0));
+            moves.push(ChessMove::new(i as u16, to, 0));
         }
     }
     moves
@@ -221,13 +215,18 @@ fn square_in_check(board: &Board, square: u16, to_move: u64) -> bool {
         return true;
     }
 
+    let mut blockers = 0u64;
+    for i in 0..12 {
+        blockers |= board.pieces[i];
+    }
+
     for update in [8, -8, 1, -1] {
-        if check_sliding_direction(board, offset, square, update, vec![ROOK, QUEEN]) {
+        if check_sliding_direction(board, offset, square, update, vec![ROOK, QUEEN], blockers) {
             return true
         }
     }
     for update in [7, -7, 9, -9] {
-        if check_sliding_direction(board, offset, square, update, vec![BISHOP, QUEEN]) {
+        if check_sliding_direction(board, offset, square, update, vec![BISHOP, QUEEN], blockers) {
             return true
         }
     }
@@ -237,22 +236,19 @@ fn square_in_check(board: &Board, square: u16, to_move: u64) -> bool {
 
 /// Helper function to check if king is in check by a sliding piece, parameterized
 /// to specify which direction
-fn check_sliding_direction(board: &Board, offset: usize, square: u16, update: i16, pieces: Vec<usize>) -> bool {
+fn check_sliding_direction(board: &Board, offset: usize, square: u16, update: i16, pieces: Vec<usize>, blockers: u64) -> bool {
     let mut target_square = square;
+    let pieces_mask = pieces.iter().fold(0, |acc, &x| acc | board.pieces[x + offset]);
     loop {
         target_square = match validate_move(target_square, update, 1) {
             None => return false,
             Some(s) => s
         };
-        for idx in 0..12 {
-            if board.pieces[idx] >> target_square & 1 == 1 {
-                for piece in pieces {
-                    if idx == offset + piece {
-                        return true;
-                    }
-                }
-                return false;
+        if blockers >> target_square & 1 == 1 {
+            if pieces_mask >> target_square & 1 == 1 {
+                return true;
             }
+            return false;
         }
     }
 }
@@ -282,46 +278,45 @@ fn pawn_moves(board: &Board, offset: usize, self_mask: u64, opp_mask: u64, to_mo
         (6, 1, -1, 13, 3)
     };
 
-    for i in 0..64 {
-        if  board.pieces[offset + PAWN] >> i & 1 == 1 {
-            for dir in [7, 9] {
-                let to = match validate_move(i, dir * direction, 1) {
-                    None => continue,
-                    Some(t) => t
-                };
-                if opp_mask >> to & 1 == 1 {
-                    if ChessMove::rank(i) == end_rank {
-                        for promotion in 4..=7 {
-                            moves.push(ChessMove::new(i, to, promotion));
-                        }
-                    } else {
-                        moves.push(ChessMove::new(i, to, 0));
-                    }
-                }
-                if ChessMove::rank(i) == enpass_rank && board.info >> (ChessMove::file(to) + enpass_offset) & 1 == 1 {
-                    moves.push(ChessMove::new(i, to, 1));
-                }
-            }
-
-            let to = match validate_move(i, 8 * direction, 0) {
+    for i_size in get_bits(board.pieces[offset + PAWN]) {
+        let i = i_size as u16;
+        for dir in [7, 9] {
+            let to = match validate_move(i, dir * direction, 1) {
                 None => continue,
                 Some(t) => t
             };
-            if opp_mask >> to & 1 == self_mask >> to & 1 {
+            if opp_mask >> to & 1 == 1 {
                 if ChessMove::rank(i) == end_rank {
                     for promotion in 4..=7 {
                         moves.push(ChessMove::new(i, to, promotion));
                     }
                 } else {
                     moves.push(ChessMove::new(i, to, 0));
-                    if ChessMove::rank(i) == start_rank {
-                        let to_jump = match validate_move(i, 16 * direction, 0) {
-                            None => continue,
-                            Some(t) => t
-                        };
-                        if opp_mask >> to_jump & 1 == self_mask >> to_jump & 1 {
-                            moves.push(ChessMove::new(i, to_jump, 2));
-                        }
+                }
+            }
+            if ChessMove::rank(i) == enpass_rank && board.info >> (ChessMove::file(to) + enpass_offset) & 1 == 1 {
+                moves.push(ChessMove::new(i, to, 1));
+            }
+        }
+
+        let to = match validate_move(i, 8 * direction, 0) {
+            None => continue,
+            Some(t) => t
+        };
+        if opp_mask >> to & 1 == self_mask >> to & 1 {
+            if ChessMove::rank(i) == end_rank {
+                for promotion in 4..=7 {
+                    moves.push(ChessMove::new(i, to, promotion));
+                }
+            } else {
+                moves.push(ChessMove::new(i, to, 0));
+                if ChessMove::rank(i) == start_rank {
+                    let to_jump = match validate_move(i, 16 * direction, 0) {
+                        None => continue,
+                        Some(t) => t
+                    };
+                    if opp_mask >> to_jump & 1 == self_mask >> to_jump & 1 {
+                        moves.push(ChessMove::new(i, to_jump, 2));
                     }
                 }
             }
@@ -346,24 +341,14 @@ fn validate_move(square: u16, jump: i16, threshold: i16) -> Option<u16> {
 /// Checks if king of side to move is in check
 pub fn check(board: &Board) -> bool {
     let offset = if board.to_move() == WHITE { 0 } else { 6 };
-    for i in 0..64 {
-        if board.pieces[offset + KING] >> i & 1 == 1 {
-            return square_in_check(board, i, board.to_move());
-        }
-    }
-    panic!("No king found")
+    square_in_check(board, board.pieces[offset + KING].trailing_zeros() as u16, board.to_move())
 }
 
 /// Checks if the side moving is giving check
 /// Useful for legal move validation
 pub fn phantom_check(board: &Board) -> bool {
     let offset = if board.to_move() == BLACK { 0 } else { 6 };
-    for i in 0..64 {
-        if board.pieces[offset + KING] >> i & 1 == 1 {
-            return square_in_check(board, i, 1 - board.to_move());
-        }
-    }
-    panic!("No king found")
+    square_in_check(board, board.pieces[offset + KING].trailing_zeros() as u16, 1 - board.to_move())
 }
 
 /// Precomputes the sliding piece moves.
@@ -382,12 +367,8 @@ fn rook_bishop_moves(square: usize, cross: u64, piece_type: usize) -> Box<[u64; 
 
     let magics = if piece_type == ROOK { ROOK_MAGICS } else { BISHOP_MAGICS };
 
-    let mut move_idxs = Vec::new();
-    for i in 0..64 {
-        if cross >> i & 1 == 1 {
-            move_idxs.push(i);
-        }
-    }
+    let mut move_idxs = get_bits(cross);
+    
     for pattern_idx in 0..(1 << move_idxs.len()) {
         let mut blocker_bitboard = 0u64;
         for bit_idx in 0..move_idxs.len() {
@@ -454,6 +435,17 @@ fn get_bishop_cross(square: usize) -> u64 {
         }
     }
     cross
+}
+
+/// returns a vector describing bits set to 1
+fn get_bits(mut n: u64) -> Vec<usize> {
+    let mut bits = Vec::new();
+    while n != 0 {
+        let idx = n.trailing_zeros() as usize;
+        bits.push(idx);
+        n &= !(1 << idx);
+    }
+    bits
 }
 
 /// https://www.chessprogramming.org/Perft
