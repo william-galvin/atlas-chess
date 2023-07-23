@@ -54,7 +54,6 @@ the position of the blockers (all other pieces on the board) to look up our bloc
 Finally, we mask out the moves of our blocked attack that would be capturing our own pieces.
 
 # TODO:
-- Pawn moves 
-- Sliding pieces (magic bitboards)
-- Perf test from many positions
+- Perf test from many positions + benchmark with build release
 - Benchmark with flamegraph (need to do on mac or digital ocean)
+- Optimizations: don't use 12 for every shift; multithreading

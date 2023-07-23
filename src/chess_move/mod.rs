@@ -106,7 +106,7 @@ impl fmt::Display for ChessMove {
            ChessMove::square(self.to()),
            match self.special() {
                0u16..=3u16 => "",
-               4 => "k",
+               4 => "n",
                5 => "b",
                6 => "r",
                7 => "q",

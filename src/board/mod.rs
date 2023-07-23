@@ -352,13 +352,13 @@ impl Board {
         None
     }
 
-    fn move_bit(value: u64, source_index: u16, destination_index: u16) -> u64 {
+    pub fn move_bit(value: u64, source_index: u16, destination_index: u16) -> u64 {
         let bit = (value >> source_index) & 1;
         let cleared_value = value & !(1 << source_index);
         cleared_value | (bit << destination_index)
     }
 
-    fn delete_bit(value: u64, index: u16) -> u64 {
+    pub fn delete_bit(value: u64, index: u16) -> u64 {
         let mask = !(1 << index);
         value & mask
     }
