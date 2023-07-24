@@ -87,13 +87,13 @@ impl ChessMove {
     /// Returns rank (0-7)
     #[inline]
     pub fn rank(n: u16) -> u16 {
-        n / 8
+        n >> 3
     }
 
     /// Returns file (0-7)
     #[inline]
     pub fn file(n: u16) -> u16 {
-        n % 8
+        n & 7
     }
 }
 
