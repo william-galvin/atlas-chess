@@ -43,10 +43,10 @@ fn main() -> io::Result<()> {
                 println!("readyok");
             },
             "ucinewgame" => {
-                gm = GameManager::new()
+                game_manager = GameManager::new()
             },
             "position" => {
-                gm.board = match msg[1] {
+                game_manager.board = match msg[1] {
                     "startpos" => {
                         Board::new()
                     },
