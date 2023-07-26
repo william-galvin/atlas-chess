@@ -364,7 +364,10 @@ fn pawn_moves(board: &Board, offset: usize, self_mask: u64, opp_mask: u64, to_mo
 /// Validates that a move + jump is legal
 /// If so, returns Some(to).
 fn validate_move(square: u16, jump: i16, threshold: u16) -> Option<u16> {
-    let to = square.wrapping_add_signed(jump);
+    if square as i16 + jump < 0 {
+        return None
+    }
+    let to = (square as i16 + jump) as u16;
     if to >= 64 {
         return None
     }
