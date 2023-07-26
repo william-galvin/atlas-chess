@@ -3,52 +3,73 @@ mod random;
 mod board;
 mod move_generator;
 
-use chess_move::ChessMove;
-use crate::board::Board;
-use crate::move_generator::{MoveGenerator, perft};
-
 use std::io::{self, BufRead, Write};
 use std::fs::File;
 
-fn main() -> std::io::Result<()> {
-    //
-    let mg = MoveGenerator::new();
-    let mut board = Board::new();
-    println!("{}", perft(6, &mut board, &mg));
+use crate::board::Board;
+use crate::move_generator::MoveGenerator;
+use crate::chess_move::ChessMove;
 
+struct GameManager {
+    board: Board,
+    move_generator: MoveGenerator
+}
 
-    // let move_generator = MoveGenerator::new();
-    //
-    // let stdin = io::stdin();
-    // let stdout = io::stdout();
-    // let mut stdout_handle = stdout.lock();
-    //
-    // // Enter an infinite loop to read from stdin indefinitely
-    // loop {
-    //     let mut input_line = String::new();
-    //
-    //     match stdin.lock().read_line(&mut input_line) {
-    //         Ok(bytes_read) => {
-    //             if bytes_read == 0 {
-    //                 // End of input (EOF), break the loop
-    //                 break;
-    //             }
-    //
-    //             let mut board = Board::from_fen(&input_line);
-    //             let mut moves= vec![];
-    //             for m in move_generator.moves(&mut board) {
-    //                 moves.push(format!("{m}"))
-    //             }
-    //
-    //             writeln!(stdout_handle, "{}", moves.join("::")).unwrap();
-    //             stdout_handle.flush().unwrap();
-    //         }
-    //         Err(error) => {
-    //             eprintln!("Error reading from stdin: {}", error);
-    //             break;
-    //         }
-    //     }
-    //
-    // }
+impl GameManager {
+    fn new() -> Self {
+        Self {
+            board: Board::new(),
+            move_generator: MoveGenerator::new()
+        }
+    }
+}
+
+fn main() -> io::Result<()> {
+
+    let mut log = File::create("log.out")?;
+    let mut game_manager = GameManager::new();
+
+    for line in io::stdin().lock().lines() {
+        let input= line?;
+        writeln!(log, "{}", input)?;
+        let msg: Vec<&str> = input.split_whitespace().collect();
+        match msg[0] {
+            "uci" => {
+                println!("id name Atlas");
+                println!("id author William Galvin");
+                println!("uciok");
+            },
+            "isready" => {
+                println!("readyok");
+            },
+            "ucinewgame" => {
+                gm = GameManager::new()
+            },
+            "position" => {
+                gm.board = match msg[1] {
+                    "startpos" => {
+                        Board::new()
+                    },
+                    "fen" => {
+                        let mut board = Board::from_fen(&msg[2..=7].join(" "));
+                        if msg.len() > 9 {
+                            for s in &msg[9..] {
+                                board.push_move(ChessMove::from_str(s));
+                            }
+                        }
+                        board
+                    },
+                    _ => panic!("Failed to parse position")
+                }
+            },
+            "go" => {
+                let moves = game_manager.move_generator.moves(&mut game_manager.board);
+                println!("bestmove {}", moves[0]);
+            }
+            _ => {
+                println!("Unknown command entered: {}", msg.join(" "));
+            }
+        }
+    }
     Ok(())
 }
