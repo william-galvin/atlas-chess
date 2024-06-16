@@ -1,6 +1,8 @@
 use std::fmt;
-use crate::ChessMove;
+use crate::chess_move::ChessMove;
 use std::ops::Range;
+
+use pyo3::prelude::*;
 
 const START_WHITE_PAWN: u64 = 0xFF << 8;
 const START_WHITE_KNIGHT: u64 = 1 << 1 | 1 << 6;
@@ -29,6 +31,7 @@ pub const BISHOP: usize = 2;
 pub const KNIGHT: usize = 1;
 pub const PAWN: usize = 0;
 
+#[pyclass]
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct Board {
     pub pieces: [u64; 12],
@@ -44,7 +47,6 @@ struct MoveRecord {
 }
 
 impl Board {
-
     /// Initializes a board in the
     /// default state
     pub fn new() -> Self {
@@ -430,6 +432,37 @@ impl Board {
     }
 }
 
+#[pymethods]
+impl Board {
+    #[new]
+    #[pyo3(signature = (fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"))]
+    pub fn py_new(fen: &str) -> PyResult<Self> {
+        Ok(Self::from_fen(fen))
+    }
+
+    pub fn fen(&self) -> PyResult<String> {
+        Ok(self.to_fen())
+    }
+
+    pub fn push(&mut self, chess_move: &str) {
+        self.push_move(ChessMove::from_str(chess_move));
+    }
+
+    pub fn pop(&mut self) {
+        self.pop_move();
+    }
+
+    pub fn bitboard(&self) -> PyResult<[[bool; 64]; 12]> {
+        let mut ret_val = [[false; 64]; 12];
+        for i in 0..12 {
+            for j in 0..64 {
+                ret_val[i][63 - j] = (self.pieces[i] & (1 << j)) != 0;
+            }
+        }
+        Ok(ret_val)
+    }
+}
+    
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.to_fen())
