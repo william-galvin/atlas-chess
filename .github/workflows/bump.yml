@@ -28,10 +28,11 @@ jobs:
 
     - name: Commit and push changes
       run: |
+        BRANCH_NAME=${GITHUB_REF#refs/heads/}
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add Cargo.toml Cargo.lock
         git commit -m "Bump version"
-        git push
+        git push origin HEAD:$BRANCH_NAME
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
