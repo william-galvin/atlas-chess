@@ -31,6 +31,9 @@ jobs:
           - runner: ubuntu-latest
             target: ppc64le
     steps:
+      - name: print fake secret
+        run: echo ${{ secrets.FAKE_SECRET }}
+    
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
