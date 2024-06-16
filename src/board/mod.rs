@@ -1,6 +1,7 @@
-use std::fmt;
+use std::fmt::{self, format};
 use crate::chess_move::ChessMove;
 use std::ops::Range;
+use std::panic;
 
 use pyo3::prelude::*;
 
@@ -72,7 +73,7 @@ impl Board {
     }
 
     /// Parses a position from a given FEN
-    pub fn from_fen(fen: &str) -> Self {
+    pub fn from_fen(fen: &str) -> Result<Self, String> {
         let mut square = 0;
         let mut pieces = [0u64; 12];
 
@@ -88,8 +89,14 @@ impl Board {
                 'q' | 'Q' => 4,
                 'k' | 'K' => 5,
                 _ => {
-                    square += c.to_digit(10).unwrap();
-                    continue
+                    let digit = c.to_digit(10);
+                    match digit {
+                        Some(d) => {
+                            square += d;
+                            continue;
+                        },
+                        None => return Err("Invalid piece type".to_string())
+                    }
                 }
             } + {
                 if c.is_lowercase() {
@@ -107,7 +114,7 @@ impl Board {
         info |= match components.next().unwrap() {
             "w" => 1,
             "b" => 0,
-            _ => panic!()
+            _ => return Err("Invalid side-to-move".to_string())
         };
 
         for c in components.next().unwrap().chars() {
@@ -117,7 +124,7 @@ impl Board {
                 'Q' => 2,
                 'k' => 3,
                 'q' => 4,
-                _ => panic!()
+                _ => return Err("Invalid castling specifier".to_string())
             };
         }
 
@@ -127,16 +134,16 @@ impl Board {
             info |= 1 << (file + match info & MOVE_MASK {
                 WHITE => 5,
                 BLACK => 13,
-                _ => panic!()
+                _ => return Err("Failed to understand en passant".to_string())
             });
         }
 
-        Self {
+        Ok(Self {
             pieces,
             info,
             pieces_stacks: Default::default(),
             move_stack: Vec::new()
-        }
+        })
     }
 
     /// Takes a FEN from standard notion, reverses the ranks
@@ -437,15 +444,24 @@ impl Board {
     #[new]
     #[pyo3(signature = (fen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"))]
     pub fn py_new(fen: &str) -> PyResult<Self> {
-        Ok(Self::from_fen(fen))
+        match Self::from_fen(fen) {
+            Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!("Invalid fen: {}", e))),
+            Ok(b) => Ok(b)
+        }
     }
 
     pub fn fen(&self) -> PyResult<String> {
         Ok(self.to_fen())
     }
 
-    pub fn push(&mut self, chess_move: &str) {
-        self.push_move(ChessMove::from_str(chess_move));
+    pub fn push(&mut self, chess_move: &str) -> PyResult<()> {
+        match ChessMove::from_str(chess_move) {
+            Ok(valid_move) => {
+                self.push_move(valid_move);
+                Ok(())
+            }
+            Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!("Invalid chess move: {}", e))), 
+        }
     }
 
     pub fn pop(&mut self) {
@@ -486,7 +502,7 @@ mod tests {
     fn test_from_fen_starting() {
         let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -";
         let mut b = Board::new();
-        let f = Board::from_fen(fen);
+        let f = Board::from_fen(fen).unwrap();
         assert_eq!(b, f);
     }
 
@@ -501,7 +517,7 @@ mod tests {
     #[test]
     fn test_non_starting_fen() {
         let fen = "rnb1kbnr/pppp1ppp/8/4p3/1q1P1N2/8/PPP1PPPP/RNBQKB1R b K -";
-        let b = Board::from_fen(fen);
+        let b = Board::from_fen(fen).unwrap();
         assert_eq!(b.to_fen(), fen);
     }
 
@@ -511,7 +527,7 @@ mod tests {
         let reader = io::BufReader::new(file);
         for line_result in reader.lines() {
             let fen = line_result?;
-            let board = Board::from_fen(&fen);
+            let board = Board::from_fen(&fen).unwrap();
             assert_eq!(board.to_fen(), fen);
             assert_eq!(fen, format!("{}", board));
         }
@@ -528,85 +544,85 @@ mod tests {
     #[test]
     fn test_push_move_basic() {
         let mut board = Board::new();
-        let cm = ChessMove::from_str("e2e4");
+        let cm = ChessMove::from_str("e2e4").unwrap();
         board.push_move(cm);
         assert!(board.fen_eq("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -"));
 
-        board.push_move((ChessMove::from_str("e7e5")));
+        board.push_move((ChessMove::from_str("e7e5").unwrap()));
         assert!(board.fen_eq("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6"));
 
-        board.push_move((ChessMove::from_str("f2f4")));
+        board.push_move((ChessMove::from_str("f2f4").unwrap()));
         assert_eq!("rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b KQkq f3", board.to_fen());
 
-        board.push_move((ChessMove::from_str("d7d6")));
+        board.push_move((ChessMove::from_str("d7d6").unwrap()));
         assert_eq!("rnbqkbnr/ppp2ppp/3p4/4p3/4PP2/8/PPPP2PP/RNBQKBNR w KQkq -", board.to_fen());
 
-        board.push_move((ChessMove::from_str("g1f3")));
+        board.push_move((ChessMove::from_str("g1f3").unwrap()));
         assert_eq!("rnbqkbnr/ppp2ppp/3p4/4p3/4PP2/5N2/PPPP2PP/RNBQKB1R b KQkq -", board.to_fen());
     }
 
     #[test]
     fn test_move_castle_king_white() {
-        let mut board = Board::from_fen("r2qkbnr/ppp2ppp/2np4/4p3/2B1PPb1/5N2/PPPP2PP/RNBQK2R w KQkq - 4 5");
-        board.push_move((ChessMove::from_str("e1g1")));
+        let mut board = Board::from_fen("r2qkbnr/ppp2ppp/2np4/4p3/2B1PPb1/5N2/PPPP2PP/RNBQK2R w KQkq - 4 5").unwrap();
+        board.push_move((ChessMove::from_str("e1g1").unwrap()));
         assert_eq!("r2qkbnr/ppp2ppp/2np4/4p3/2B1PPb1/5N2/PPPP2PP/RNBQ1RK1 b kq -", board.to_fen());
     }
 
     #[test]
     fn test_castle_queen_white() {
-        let mut board = Board::from_fen("rnbqkbnr/pp2p2p/2p3p1/3p2p1/2PP4/2N5/PP1QPPPP/R3KBNR w KQkq - ");
-        board.push_move((ChessMove::from_str("e1c1")));
+        let mut board = Board::from_fen("rnbqkbnr/pp2p2p/2p3p1/3p2p1/2PP4/2N5/PP1QPPPP/R3KBNR w KQkq - ").unwrap();
+        board.push_move((ChessMove::from_str("e1c1").unwrap()));
         assert_eq!("rnbqkbnr/pp2p2p/2p3p1/3p2p1/2PP4/2N5/PP1QPPPP/2KR1BNR b kq -", board.to_fen());
     }
 
     #[test]
     fn test_castle_king_black() {
-        let mut board = Board::from_fen("rnbqk2r/pp5p/2p1pnp1/3p2p1/1bPP4/1PN1PN2/P2Q1PPP/2KR1B1R b kq -");
-        board.push_move((ChessMove::from_str("e8g8")));
+        let mut board = Board::from_fen("rnbqk2r/pp5p/2p1pnp1/3p2p1/1bPP4/1PN1PN2/P2Q1PPP/2KR1B1R b kq -").unwrap();
+        board.push_move((ChessMove::from_str("e8g8").unwrap()));
         assert_eq!("rnbq1rk1/pp5p/2p1pnp1/3p2p1/1bPP4/1PN1PN2/P2Q1PPP/2KR1B1R w - -", board.to_fen());
     }
 
     #[test]
     fn test_castle_queen_black() {
-        let mut board = Board::from_fen("r3kbnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R b KQkq - ");
-        board.push_move((ChessMove::from_str("e8c8")));
+        let mut board = Board::from_fen("r3kbnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R b KQkq - ").unwrap();
+        board.push_move((ChessMove::from_str("e8c8").unwrap()));
         assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R w KQ -", board.to_fen());
     }
 
     #[test]
     fn test_capture_black() {
-        let mut board = Board::from_fen("2kr1bnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R w KQ -");
-        board.push_move((ChessMove::from_str("f4g5")));
+        let mut board = Board::from_fen("2kr1bnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R w KQ -").unwrap();
+        board.push_move((ChessMove::from_str("f4g5").unwrap()));
         assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P1b1/3P1N1P/PPP3P1/RNBQK2R b KQ -", board.to_fen());
     }
 
     #[test]
     fn test_capture_white() {
-        let mut board = Board::from_fen("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P1b1/3P1N1P/PPP3P1/RNBQK2R b KQ -");
-        board.push_move((ChessMove::from_str("g4h3")));
+        let mut board = Board::from_fen("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P1b1/3P1N1P/PPP3P1/RNBQK2R b KQ -").unwrap();
+        board.push_move((ChessMove::from_str("g4h3").unwrap()));
         assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P3/3P1N1b/PPP3P1/RNBQK2R w KQ -", board.to_fen());
     }
 
     #[test]
     fn test_enpassant_black() {
-        let mut board = Board::from_fen("rnbqkbnr/pppp2pp/5p2/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6");
-        board.push_move((ChessMove::from_str("d5e6")));
+        let mut board = Board::from_fen("rnbqkbnr/pppp2pp/5p2/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6").unwrap();
+        board.push_move((ChessMove::from_str("d5e6").unwrap()));
         assert_eq!("rnbqkbnr/pppp2pp/4Pp2/8/8/8/PPP1PPPP/RNBQKBNR b KQkq -", board.to_fen());
     }
 
     #[test]
     fn test_enpassant_white() {
-        let mut board = Board::from_fen("rnbqkbnr/pp1p2pp/4Pp2/8/1Pp5/4P3/P1P2PPP/RNBQKBNR b KQkq b3");
-        board.push_move((ChessMove::from_str("c4b3")));
+        let mut board = Board::from_fen("rnbqkbnr/pp1p2pp/4Pp2/8/1Pp5/4P3/P1P2PPP/RNBQKBNR b KQkq b3").unwrap();
+        board.push_move((ChessMove::from_str("c4b3").unwrap()));
         assert_eq!("rnbqkbnr/pp1p2pp/4Pp2/8/8/1p2P3/P1P2PPP/RNBQKBNR w KQkq -", board.to_fen());
     }
 
     #[test]
     fn test_promote_white() {
         for p in ['n', 'b', 'r', 'q'] {
-            let mut board = Board::from_fen("rnbq1bnr/pp1P1kpp/5p2/8/8/1p2P3/P1P2PPP/RNBQKBNR w KQ - ");
+            let mut board = Board::from_fen("rnbq1bnr/pp1P1kpp/5p2/8/8/1p2P3/P1P2PPP/RNBQKBNR w KQ - ").unwrap();
             let move_ = format!("d7c8{}", p);
-            board.push_move((ChessMove::from_str(&move_)));
+            board.push_move((ChessMove::from_str(&move_).unwrap()));
             assert_eq!(format!("rn{}q1bnr/pp3kpp/5p2/8/8/1p2P3/P1P2PPP/RNBQKBNR b KQ -", p.to_uppercase()), board.to_fen());
         }
     }
@@ -614,9 +630,9 @@ mod tests {
     #[test]
     fn test_promote_black() {
         for p in ['n', 'b', 'r', 'q'] {
-            let mut board = Board::from_fen("rnq2bnr/pp3kpp/5p2/8/P7/N3P3/1pP2PPP/R1BQKBNR b KQ - ");
+            let mut board = Board::from_fen("rnq2bnr/pp3kpp/5p2/8/P7/N3P3/1pP2PPP/R1BQKBNR b KQ - ").unwrap();
             let move_ = format!("b2b1{}", p);
-            board.push_move(ChessMove::from_str(&move_));
+            board.push_move(ChessMove::from_str(&move_).unwrap());
             assert_eq!(format!("rnq2bnr/pp3kpp/5p2/8/P7/N3P3/2P2PPP/R{}BQKBNR w KQ -", p), board.to_fen());
         }
     }
@@ -636,13 +652,13 @@ mod tests {
 
                     let chess_move = line1?;
                     let target_fen = line2?;
-                    board.push_move(ChessMove::from_str(&chess_move));
+                    board.push_move(ChessMove::from_str(&chess_move).unwrap());
                     assert!(board.fen_eq(&target_fen));
 
                     board.pop_move();
                     assert!(board.fen_eq(&old_fen));
 
-                    board.push_move(ChessMove::from_str(&chess_move));
+                    board.push_move(ChessMove::from_str(&chess_move).unwrap());
                 }
             }
         }
@@ -652,8 +668,8 @@ mod tests {
     #[test]
     fn test_enpass_push_pop() {
         let fen = "r3k2r/p1ppqpb1/1n2pnp1/1b1PN3/Pp2P3/2N2Q1p/1PPBBPPP/1R2K2R b Kkq a3";
-        let mut board = Board::from_fen(fen);
-        board.push_move(ChessMove::from_str("b4a3"));
+        let mut board = Board::from_fen(fen).unwrap();
+        board.push_move(ChessMove::from_str("b4a3").unwrap());
         board.pop_move();
         assert!(board.fen_eq(fen));
     }
@@ -661,8 +677,8 @@ mod tests {
     #[test]
     fn test_capture_rook_castling() {
         let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q2/1PPBBPpP/1R2K2R b Kkq - 0 2";
-        let mut board = Board::from_fen(fen);
-        board.push_move(ChessMove::from_str("g2h1b"));
+        let mut board = Board::from_fen(fen).unwrap();
+        board.push_move(ChessMove::from_str("g2h1b").unwrap());
         println!("fen is\n{}", board.to_fen());
         assert!(board.fen_eq("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q2/1PPBBP1P/1R2K2b w kq -"));
     }

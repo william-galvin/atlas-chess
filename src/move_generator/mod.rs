@@ -530,19 +530,19 @@ mod tests {
     fn check_test_knight() {
         let mg = MoveGenerator::new();
 
-        let mut board = Board::from_fen("r1bqk2r/p1p1b1pp/3p1p2/1p2p3/4PP2/1PNB1nP1/1BPPQ2P/R3NRK1 w kq - 3 13");
+        let mut board = Board::from_fen("r1bqk2r/p1p1b1pp/3p1p2/1p2p3/4PP2/1PNB1nP1/1BPPQ2P/R3NRK1 w kq - 3 13").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("r1bqk2r/p1p1b1p1/3p1p1p/1p2p3/4PP2/1PNB1nP1/1BPPQ2P/R3NR1K w kq - 0 14");
+        let mut board = Board::from_fen("r1bqk2r/p1p1b1p1/3p1p1p/1p2p3/4PP2/1PNB1nP1/1BPPQ2P/R3NR1K w kq - 0 14").unwrap();
         assert!(!mg.check(&board));
 
-        let mut board = Board::from_fen("r1bqk2r/p1N1b1p1/3p1p1p/1p2p3/4PP2/1P1B2P1/1BPPQ2P/R3nR1K b kq - 0 15");
+        let mut board = Board::from_fen("r1bqk2r/p1N1b1p1/3p1p1p/1p2p3/4PP2/1P1B2P1/1BPPQ2P/R3nR1K b kq - 0 15").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("r1b1k2r/pRq1b1p1/3p1p1p/4p3/4PP2/1n4P1/1BPPQ2P/5R1K w kq - 0 19");
+        let mut board = Board::from_fen("r1b1k2r/pRq1b1p1/3p1p1p/4p3/4PP2/1n4P1/1BPPQ2P/5R1K w kq - 0 19").unwrap();
         assert!(!mg.check(&board));
 
-        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/3NP3/1k6/5N2/P1PP1PPP/R1BQKB1R b KQ - 1 6");
+        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/3NP3/1k6/5N2/P1PP1PPP/R1BQKB1R b KQ - 1 6").unwrap();
         assert!(mg.check(&board));
     }
 
@@ -550,13 +550,13 @@ mod tests {
     fn check_test_pawn() {
         let mg = MoveGenerator::new();
 
-        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/3kp3/4P3/8/2N2N2/PPPP1PPP/R1BQKB1R b KQ - 0 4");
+        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/3kp3/4P3/8/2N2N2/PPPP1PPP/R1BQKB1R b KQ - 0 4").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/2k1P3/8/2N2N2/PPPP1PPP/R1BQKB1R w KQ - 1 5");
+        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/2k1P3/8/2N2N2/PPPP1PPP/R1BQKB1R w KQ - 1 5").unwrap();
         assert!(! mg.check(&board));
 
-        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/2k1P3/1P6/2N2N2/P1PP1PPP/R1BQKB1R b KQ - 0 5");
+        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/2k1P3/1P6/2N2N2/P1PP1PPP/R1BQKB1R b KQ - 0 5").unwrap();
         assert!(mg.check(&board));
     }
 
@@ -564,16 +564,16 @@ mod tests {
     fn test_check_rook_under() {
         let mg = MoveGenerator::new();
 
-        let mut board = Board::from_fen("8/8/8/7p/1k5P/8/4K3/1R6 b - - 0 1");
+        let mut board = Board::from_fen("8/8/8/7p/1k5P/8/4K3/1R6 b - - 0 1").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("8/8/8/7p/k6P/8/4K3/1R6 b - - 0 1");
+        let mut board = Board::from_fen("8/8/8/7p/k6P/8/4K3/1R6 b - - 0 1").unwrap();
         assert!(!mg.check(&board));
 
-        let mut board = Board::from_fen("8/8/8/7p/k6P/8/N3K3/R7 b - - 0 1");
+        let mut board = Board::from_fen("8/8/8/7p/k6P/8/N3K3/R7 b - - 0 1").unwrap();
         assert!(!mg.check(&board));
 
-        let mut board = Board::from_fen("8/8/8/7p/k6P/8/4K3/Q1N5 b - - 0 1");
+        let mut board = Board::from_fen("8/8/8/7p/k6P/8/4K3/Q1N5 b - - 0 1").unwrap();
         assert!(mg.check(&board));
     }
 
@@ -586,10 +586,10 @@ mod tests {
     fn check_bishop() {
         let mg = MoveGenerator::new();
 
-        let mut board = Board::from_fen("8/3B4/8/7p/k6P/8/4K3/1R6 b - - 0 1");
+        let mut board = Board::from_fen("8/3B4/8/7p/k6P/8/4K3/1R6 b - - 0 1").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("2BB4/4B3/8/7p/k6P/8/4K3/1RB5 b - - 0 1");
+        let mut board = Board::from_fen("2BB4/4B3/8/7p/k6P/8/4K3/1RB5 b - - 0 1").unwrap();
         assert!(!mg.check(&board));
     }
 
@@ -607,7 +607,7 @@ mod tests {
                 match moves.next() {
                     None => break,
                     Some(m) => {
-                        board.push_move(ChessMove::from_str(m));
+                        board.push_move(ChessMove::from_str(m).unwrap());
                         let c = moves.next().unwrap();
                         match c  {
                             "True" => {
@@ -644,7 +644,7 @@ mod tests {
 
         let expected = [48, 2039, 97862, 4085603];
         for i in 1..=4 {
-            let mut board = Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ");
+            let mut board = Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ").unwrap();
             assert_eq!(perft(i, &mut board, &mg), expected[i as usize - 1]);
         }
 
@@ -656,7 +656,7 @@ mod tests {
 
         let expected = [46, 2079, 89890, 3894594];
         for i in 1..=4 {
-            let mut board = Board::from_fen("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ");
+            let mut board = Board::from_fen("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ").unwrap();
             assert_eq!(perft(i, &mut board, &mg), expected[i as usize - 1]);
         }
     }

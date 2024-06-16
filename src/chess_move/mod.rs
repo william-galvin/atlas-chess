@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, io::Error};
 
 const FROM_MASK: u16 =    0b0000000000111111;
 const TO_MASK: u16 =      0b0000111111000000;
@@ -29,19 +29,19 @@ impl ChessMove {
     /// Takes a string in UCI-compatible algabraic notation.
     /// For example, e2e4, e2e4, e1g1 (castling), e7e8q (promotion)
     /// Leaves the `SPECIAL` field blank, except for promotions
-    pub fn from_str(s_move: &str) -> Self {
+    pub fn from_str(s_move: &str) -> Result<Self, String> {
         let promotion = match s_move.len() {
             5 => {
                 match s_move.chars().last().unwrap() {
-                    'n' => 4,
-                    'b' => 5,
-                    'r' => 6,
-                    'q' => 7,
-                    _ => panic!("Unsupported promotion type")
+                    'n' | 'N' => 4,
+                    'b' | 'B' => 5,
+                    'r' | 'R' => 6,
+                    'q' | 'Q' => 7,
+                    _ => return Err("Unsupported promotion type".to_string())
                 }
             },
             4 => 0,
-            _ => panic!("Unsupported move notation. Must be 4 or 5 (promotion) characters. Found: {}", s_move)
+            _ => return Err(format!("Unsupported move notation. Must be 4 or 5 (promotion) characters. Found: {}", s_move))
         };
 
         let v_move: Vec<char> = s_move.chars().collect();
@@ -59,7 +59,7 @@ impl ChessMove {
         let from = from_rank * 8 + from_file;
         let to = to_rank * 8 + to_file;
 
-        Self::new(from as u16, to as u16, promotion)
+        Ok(Self::new(from as u16, to as u16, promotion))
     }
 
     /// Returns from square as u16
@@ -187,12 +187,12 @@ mod tests {
 
     #[test]
     fn test_from_str() {
-        let cm = ChessMove::from_str("e2e4");
+        let cm = ChessMove::from_str("e2e4").unwrap();
         assert_eq!(cm.to(), 28);
         assert_eq!(cm.from(), 12);
         assert_eq!(cm.special(), 0);
 
-        let cm0 = ChessMove::from_str("a7a8b");
+        let cm0 = ChessMove::from_str("a7a8b").unwrap();
         assert_eq!(cm0.from(), 48);
         assert_eq!(cm0.to(), 56);
         assert_eq!(cm0.special(), 5);
@@ -200,16 +200,22 @@ mod tests {
 
     #[test]
     fn test_debug() {
-        let cm = ChessMove::from_str("a7a8b");
+        let cm = ChessMove::from_str("a7a8b").unwrap();
         assert_eq!(format!("{:?}", cm), "[to=a8, from=a7, special=bishop promotion]");
     }
 
     #[test]
     fn test_display() {
-        let cm = ChessMove::from_str("a7a8q");
+        let cm = ChessMove::from_str("a7a8q").unwrap();
         assert_eq!(format!("{}", cm), "a7a8q");
 
-        let cm1 = ChessMove::from_str("a7a8");
+        let cm1 = ChessMove::from_str("a7a8").unwrap();
         assert_eq!(format!("{}", cm1), "a7a8");
+    }
+
+    #[test]
+    fn test_capital_promotion() {
+        let cm = ChessMove::from_str("a7a8Q").unwrap();
+        assert_eq!(format!("{}", cm), "a7a8q");
     }
 }

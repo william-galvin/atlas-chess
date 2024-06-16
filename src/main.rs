@@ -51,10 +51,13 @@ fn main() -> io::Result<()> {
                         Board::new()
                     },
                     "fen" => {
-                        let mut board = Board::from_fen(&msg[2..=7].join(" "));
+                        let mut board = Board::from_fen(&msg[2..=7].join(" ")).unwrap();
                         if msg.len() > 9 {
                             for s in &msg[9..] {
-                                board.push_move(ChessMove::from_str(s));
+                                match ChessMove::from_str(s) {
+                                    Ok(valid_move) => board.push_move(valid_move),
+                                    Err(e) => print!("Error: {}", e)
+                                };
                             }
                         }
                         board
