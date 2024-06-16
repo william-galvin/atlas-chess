@@ -1,6 +1,8 @@
 use crate::chess_move::ChessMove;
 use crate::board::{Board, WHITE, BLACK, KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN};
 
+use pyo3::prelude::*;
+
 const ROOK_MAGICS: [usize; 64] = [
     0xa8002c000108020, 0x6c00049b0002001, 0x100200010090040, 0x2480041000800801, 0x280028004000800,
     0x900410008040022, 0x280020001001080, 0x2880002041000080, 0xa000800080400034, 0x4808020004000,
@@ -55,8 +57,26 @@ const BISHOP_SHIFTS: [u16; 64] = [
     58, 59, 59, 59, 59, 59, 59, 58
 ];
 
+#[pyclass]
 pub struct MoveGenerator {
     sliding_moves: Vec<Vec<u64>>
+}
+
+#[pymethods]
+impl MoveGenerator {
+    #[new]
+    pub fn py_new() -> PyResult<Self> {
+        Ok(Self::new())
+    }
+
+    pub fn __call__(&self, board: &mut Board) -> PyResult<Vec<String>> {
+        Ok(
+            self.moves(board)
+                .into_iter()
+                .map(|c| c.to_string())
+                .collect()
+        )
+    }
 }
 
 impl MoveGenerator {
