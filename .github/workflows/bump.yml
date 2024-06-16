@@ -1,0 +1,44 @@
+name: Version Bump
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - master
+
+jobs:
+  version-bump:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Install cargo-bump
+        run: cargo install cargo-bump
+
+      - name: Bump version
+        run: cargo bump patch
+
+      - name: Commit and push changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin ${{ github.head_ref }}
+          git checkout ${{ github.head_ref }}
+          git pull origin ${{ github.head_ref }}
+          git add Cargo.toml Cargo.lock
+          git commit -m "Bump version"
+          git push origin HEAD:${{ github.head_ref }}
