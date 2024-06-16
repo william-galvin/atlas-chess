@@ -7,7 +7,7 @@ edition = "2021"
 
 
 [lib]
-name = "atlaschess"
+name = "atlas_chess"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

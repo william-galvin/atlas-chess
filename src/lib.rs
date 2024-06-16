@@ -3,19 +3,13 @@ mod random;
 mod board;
 mod move_generator;
 
-use move_generator::MoveGenerator;
-use pyo3::prelude::*;
+use crate::move_generator::MoveGenerator;
 use crate::board::Board;
 
-#[pyfunction]
-fn add(a: i32, b: i32) -> PyResult<i32> {
-    println!{"We are in a rust function!"}
-    Ok(a + b)
-}
+use pyo3::prelude::*;
 
 #[pymodule]
-fn atlaschess(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(add, m)?)?;
+fn atlas_chess(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Board>()?;
     m.add_class::<MoveGenerator>()?;
     Ok(())
