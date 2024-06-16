@@ -16,3 +16,4 @@ pyo3 = { version = "0.21.2" }
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
+
