@@ -19,9 +19,6 @@ jobs:
       - name: set up maturin
         run: |
           pip install maturin
-          printf "[pypi]\n" >> $HOME/.pypirc
-          printf "\tusername = __token__\n" $HOME/.pypirc
-          printf "\tpassword = %s\n" ${{ secrets.PYPI_TOKEN }} $HOME/.pypirc
 
       - name: Publish
-        run: maturin publish
+        run: maturin publish --username "__token__" --password ${{ secrets.PYPI_TOKEN }}
