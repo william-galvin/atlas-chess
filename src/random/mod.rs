@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[allow(unused)]
 fn get_sys_time() -> u64 {
     let start = SystemTime::now();
     let since_the_epoch = start
@@ -13,6 +14,7 @@ pub struct Rng {
     inc: u64
 }
 
+#[allow(unused)]
 impl Rng {
 
     /// Initialize the random number generator

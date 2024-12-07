@@ -1,4 +1,4 @@
-use std::fmt::{self, format};
+use std::fmt;
 use crate::chess_move::ChessMove;
 use std::ops::Range;
 use std::panic;

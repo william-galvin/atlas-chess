@@ -1,4 +1,4 @@
-use std::{fmt, io::Error};
+use std::fmt;
 
 const FROM_MASK: u16 =    0b0000000000111111;
 const TO_MASK: u16 =      0b0000111111000000;

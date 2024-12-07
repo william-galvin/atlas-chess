@@ -164,13 +164,11 @@ impl MoveGenerator {
         let offset = if to_move == WHITE { 6 } else { 0 };
 
         if check_pawn_knight(
-            board,
             board.pieces[offset + KNIGHT],
             square,
             vec![-17, -15, -6, 10, 17, 15, 6, -10],
             2
         ) || check_pawn_knight(
-            board,
             board.pieces[offset + PAWN],
             square,
             if to_move == WHITE { vec![7, 9] } else { vec![-7, -9] },
@@ -202,7 +200,6 @@ impl MoveGenerator {
     /// Finds pseudo-legal king moves
     fn king_moves(&self, board: &Board, self_offset: usize, self_mask: u64, opp_mask: u64, to_move: u64) -> Vec<ChessMove> {
         let mut moves = get_k_moves(
-            board,
             board.pieces[self_offset + KING],
             self_mask,
             [-8, 8, 1, -1, 9, 7, -9, -7],
@@ -263,7 +260,6 @@ impl MoveGenerator {
 /// Finds pseudo-legal knight moves
 fn knight_moves(board: &Board, self_offset: usize, self_mask: u64) -> Vec<ChessMove> {
     get_k_moves(
-        board,
         board.pieces[self_offset + KNIGHT],
         self_mask,
         [-17, -15, -6, 10, 17, 15, 6, -10],
@@ -273,7 +269,7 @@ fn knight_moves(board: &Board, self_offset: usize, self_mask: u64) -> Vec<ChessM
 
 /// Helper for generating king/knight moves, since the procedure
 /// is roughly the same for both
-fn get_k_moves(board: &Board, bitboard: u64, self_mask: u64, directions: [i16; 8], threshold: u16) -> Vec<ChessMove> {
+fn get_k_moves(bitboard: u64, self_mask: u64, directions: [i16; 8], threshold: u16) -> Vec<ChessMove> {
     let mut moves = Vec::new();
     for i in get_bits(bitboard) {
         for dir in directions {
@@ -292,6 +288,7 @@ fn get_k_moves(board: &Board, bitboard: u64, self_mask: u64, directions: [i16; 8
 
 /// Helper function to check if king is in check by a sliding piece, parameterized
 /// to specify which direction
+#[allow(unused)]
 fn check_sliding_direction(board: &Board, offset: usize, square: u16, update: i16, pieces: Vec<usize>, blockers: u64) -> bool {
     let mut target_square = square;
     let pieces_mask = pieces.iter().fold(0, |acc, &x| acc | board.pieces[x + offset]);
@@ -311,7 +308,7 @@ fn check_sliding_direction(board: &Board, offset: usize, square: u16, update: i1
 
 /// Helper for checking whether check is given by a pawn or
 /// knight, since they are handled similarly
-fn check_pawn_knight(board: &Board, bitboard: u64, square: usize, directions: Vec<i16>, threshold: u16) -> bool {
+fn check_pawn_knight(bitboard: u64, square: usize, directions: Vec<i16>, threshold: u16) -> bool {
     for jump in directions {
         let to = match validate_move(square as u16, jump, threshold) {
             Some(t) => t,
@@ -328,7 +325,7 @@ fn check_pawn_knight(board: &Board, bitboard: u64, square: usize, directions: Ve
 fn pawn_moves(board: &Board, offset: usize, self_mask: u64, opp_mask: u64, to_move: u64) -> Vec<ChessMove> {
     let mut moves = Vec::new();
 
-    let (start_rank, end_rank, direction, enpass_offset, enpass_rank) = if board.to_move() == WHITE {
+    let (start_rank, end_rank, direction, enpass_offset, enpass_rank) = if to_move == WHITE {
         (1, 6, 1, 5, 4)
     } else {
         (6, 1, -1, 13, 3)
@@ -419,7 +416,7 @@ fn rook_bishop_moves(square: usize, cross: u64, piece_type: usize) -> Box<[u64; 
 
     let (magics, shifts) = if piece_type == ROOK { (ROOK_MAGICS, ROOK_SHIFTS) } else { (BISHOP_MAGICS, BISHOP_SHIFTS) };
 
-    let mut move_idxs = get_bits(cross);
+    let move_idxs = get_bits(cross);
     
     for pattern_idx in 0..(1 << move_idxs.len()) {
         let mut blocker_bitboard = 0u64;
@@ -502,6 +499,7 @@ fn get_bits(mut n: u64) -> Vec<usize> {
 
 /// https://www.chessprogramming.org/Perft
 /// https://www.chessprogramming.org/Perft_Results
+#[allow(unused)]
 pub fn perft(depth: i32, board: &mut Board, move_gen: &MoveGenerator) -> usize {
     let moves = move_gen.moves(board);
 
