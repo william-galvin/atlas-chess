@@ -654,10 +654,13 @@ mod tests {
     fn test_perft6() {
         let mg = MoveGenerator::new();
 
+        let start = Instant::now();
         let expected = [46, 2079, 89890, 3894594];
         for i in 1..=4 {
             let mut board = Board::from_fen("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ").unwrap();
             assert_eq!(perft(i, &mut board, &mg), expected[i as usize - 1]);
         }
+        let elapsed = start.elapsed();
+        eprintln!("Elapsed: {:.4?}", elapsed);
     }
 }

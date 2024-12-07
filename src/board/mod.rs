@@ -72,13 +72,10 @@ impl Board {
         }
     }
 
-    /// Parses a position from a given FEN
-    pub fn from_fen(fen: &str) -> Result<Self, String> {
+    fn pieces_from_fen(fen: &str) -> [u64; 12] {
         let mut square = 0;
         let mut pieces = [0u64; 12];
-
         let mut components = fen.split_whitespace();
-
         for c in Self::reverse_fen(components.next().unwrap()).chars() {
             let idx = match c {
                 '/' => continue,
@@ -95,7 +92,7 @@ impl Board {
                             square += d;
                             continue;
                         },
-                        None => return Err("Invalid piece type".to_string())
+                        None => panic!("Invalid piece type")
                     }
                 }
             } + {
@@ -108,7 +105,15 @@ impl Board {
             pieces[idx] |= 1 << square;
             square += 1;
         }
+        return pieces;
+    }
 
+    /// Parses a position from a given FEN
+    pub fn from_fen(fen: &str) -> Result<Self, String> {
+        
+        let pieces = Self::pieces_from_fen(fen);
+        let mut components = fen.split_whitespace();
+        components.next();
         let mut info = 0u64;
 
         info |= match components.next().unwrap() {
@@ -450,6 +455,18 @@ impl Board {
         }
     }
 
+    #[staticmethod]
+    pub fn bitboard_from_fen(fen: &str) -> PyResult<[[bool; 64]; 12]> {
+        let pieces = Self::pieces_from_fen(fen);
+        let mut ret_val = [[false; 64]; 12];
+        for i in 0..12 {
+            for j in 0..64 {
+                ret_val[i][j] = (pieces[i] & (1 << j)) != 0;
+            }
+        }
+        Ok(ret_val)
+    }
+
     pub fn fen(&self) -> PyResult<String> {
         Ok(self.to_fen())
     }
@@ -472,10 +489,74 @@ impl Board {
         let mut ret_val = [[false; 64]; 12];
         for i in 0..12 {
             for j in 0..64 {
-                ret_val[i][63 - j] = (self.pieces[i] & (1 << j)) != 0;
+                ret_val[i][j] = (self.pieces[i] & (1 << j)) != 0;
             }
         }
         Ok(ret_val)
+    }
+
+    pub fn turn(&self) -> PyResult<String> {
+        Ok( String::from(
+            match self.to_move() {
+                WHITE => "white",
+                BLACK => "black",
+                _ => panic!("unexpected side to move")
+            }
+        ))
+    }
+
+    pub fn reflect(&mut self) -> PyResult<()> {
+        for piece in 0..=11 {
+            for rank in 0..=3 {
+                let shift1 = rank * 8usize;
+                let shift2 = (7 - rank) * 8usize; 
+
+                let tmp = (self.pieces[piece] >> shift1) & 0b11111111;
+
+                self.pieces[piece] &= !(0b11111111 << shift1);
+                self.pieces[piece] |= ((self.pieces[piece] >> shift2) & 0b11111111) << shift1;
+
+                self.pieces[piece] &= !(0b11111111 << shift2);
+                self.pieces[piece] |= tmp << shift2;
+            }
+        }
+
+        for i in 0..=5 {
+            let tmp = self.pieces[i];
+            self.pieces[i] = self.pieces[i + 6];
+            self.pieces[i + 6] = tmp;
+        }
+
+        for i in 1..=2 {
+            let tmp = (self.info >> i) & 1;
+            
+            self.info &= !(1 << i);
+            self.info |= ((self.info >> i + 2) & 1) << i;
+            
+            self.info &= !(1 << (i + 2));
+            self.info |= tmp << (i + 2);
+        }
+
+        for i in 5..=12 {
+            let tmp = (self.info >> i) & 1;
+            
+            self.info &= !(1 << i);
+            self.info |= ((self.info >> i + 8) & 1) << i;
+            
+            self.info &= !(1 << (i + 8));
+            self.info |= tmp << (i + 8) ;
+        }
+
+        self.info ^= MOVE_MASK;
+
+        self.pieces_stacks = Default::default();
+        self.move_stack = Vec::new();
+
+        Ok(())
+    }
+
+    pub fn copy(&self) -> PyResult<Self> {
+        Ok(self.clone())
     }
 }
     
