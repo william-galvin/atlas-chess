@@ -447,7 +447,7 @@ impl Board {
         let this_fen = self.to_fen();
         let mut this = this_fen.split_whitespace();
         let mut other = other_fen.split_whitespace();
-        for i in 0..3 {
+        for _ in 0..3 {
             if this.next().unwrap() != other.next().unwrap() {
                 return false;
             }

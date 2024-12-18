@@ -220,7 +220,7 @@ mod tests {
 
         let board = Board::new();
         let res = engine.nn.run(ort::inputs![bitboard_onnx_order_vec(board.pieces)].unwrap()).unwrap();
-        let scores = &res[2].try_extract_tensor::<f32>().unwrap();
+        let _scores = &res[2].try_extract_tensor::<f32>().unwrap();
 
         Ok(())
     }
