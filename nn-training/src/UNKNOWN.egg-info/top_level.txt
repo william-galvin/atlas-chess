@@ -1,8 +1,0 @@
-create_dataset
-dataloader
-evaluation
-inference
-main
-manual
-nn
-util
