@@ -1,4 +1,5 @@
 use crate::board::{Board, WHITE};
+use crate::constants::{N_ONNX_THREADS, DEEP_MOVE_ORDERING_DEPTH};
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
 use crate::move_generator::MoveGenerator;
 use crate::chess_move::ChessMove;
@@ -8,8 +9,6 @@ use ort::session::{
     Session,
 };
 use ndarray::Array3;
-
-const N_ONNX_THREADS: usize = 2; // TODO: config
 
 pub struct Engine {
     move_generator: MoveGenerator,
@@ -107,7 +106,7 @@ fn negamax(
         return Ok((Some(ChessMove::default()), 0));
     }
 
-    if depth == max_depth { // TODO - make config-able
+    if depth >= max_depth - DEEP_MOVE_ORDERING_DEPTH {
         order_moves_nn(root, &mut child_nodes, nn)?;    
     } 
 
@@ -202,7 +201,7 @@ fn count_pieces(board: &Board) -> i16 {
 
 #[cfg(test)]
 mod tests {
-    use crate::zobrist;
+    use crate::constants;
     use super::*;
     
     use std::io::{self, BufRead};
@@ -215,7 +214,7 @@ mod tests {
             MoveGenerator::new(), 
             "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.onnx",
             4,
-            zobrist::GIB / 2048
+            constants::GIB / 2048
         ).unwrap();
 
         let board = Board::new();
@@ -238,7 +237,7 @@ mod tests {
             MoveGenerator::new(), 
             "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
             3,
-            zobrist::GIB / 1024
+            constants::GIB / 1024
         )?;
 
         let start = Instant::now();
@@ -271,7 +270,7 @@ mod tests {
             MoveGenerator::new(), 
             "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
             5,
-            zobrist::GIB / 8
+            constants::GIB / 8
         )?;
 
         let start = Instant::now();
@@ -305,7 +304,7 @@ mod tests {
             MoveGenerator::new(), 
             "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
             7,
-            zobrist::GIB / 2048
+            constants::GIB / 2048
         )?;
 
         let board = Board::from_fen("2r5/1k4q1/2pRp3/ppQ1Pp1p/8/2P1P3/PP3PrP/3R1K2 b - - 1 30")?;
@@ -322,7 +321,7 @@ mod tests {
             MoveGenerator::new(), 
             "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
             9,
-            zobrist::GIB / 2048
+            constants::GIB / 2048
         )?;
 
         let start = Instant::now();
@@ -343,7 +342,7 @@ mod tests {
             MoveGenerator::new(), 
             "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
             7,
-            zobrist::GIB
+            constants::GIB
         )?;
 
         let file = File::open("tests/mate_in_4.csv")?;

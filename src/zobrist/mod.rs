@@ -1,6 +1,10 @@
-use std::{fmt::Debug, mem::size_of, ops::Index, sync::Arc, u64};
+use std::{fmt::Debug, mem::size_of, ops::Index, sync::Arc};
 
-use crate::{chess_move::ChessMove, random::Rng};
+use crate::{
+    chess_move::ChessMove, 
+    random::Rng,
+    constants::TT_CACHE_SIZE,
+};
 
 pub trait Uint: Sized {
     fn from_u64_truncate(value: u64) -> Self;
@@ -20,11 +24,9 @@ macro_rules! impl_uint {
 
 impl_uint!(u8, u16, u32, u64, usize, u128);
 
-pub const GIB: usize = 1_073_741_824;
 const N_FEATURES: usize = 64 * 12 + 22;
 const ENTRY_SIZE: usize = size_of::<ZobristHashTableEntry>();
-const CACHE_SIZE: usize = GIB / 4; // TODO: put in config, remove from ::new param
-const N_ENTRIES: usize = CACHE_SIZE / ENTRY_SIZE;
+const N_ENTRIES: usize = TT_CACHE_SIZE / ENTRY_SIZE;
 
 
 /// Table of N_FEATURES random bitstrings to 

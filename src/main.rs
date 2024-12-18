@@ -4,6 +4,7 @@ mod board;
 mod move_generator;
 mod engine;
 mod zobrist;
+mod constants;
 
 use std::io::{self, BufRead, Write};
 use std::fs::File;
@@ -26,7 +27,7 @@ impl GameManager {
                 MoveGenerator::new(), 
                 "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
                 7,
-                zobrist::GIB / 2048
+                constants::TT_CACHE_SIZE
             ).unwrap(),
         }
     }

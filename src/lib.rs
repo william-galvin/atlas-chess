@@ -3,6 +3,7 @@ mod random;
 mod board;
 mod move_generator;
 mod zobrist;
+mod constants;
 
 use crate::move_generator::MoveGenerator;
 use crate::board::Board;
