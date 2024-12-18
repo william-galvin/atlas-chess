@@ -3,6 +3,8 @@ use crate::board::{Board, WHITE, BLACK, KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN}
 
 use pyo3::prelude::*;
 
+use std::thread;
+
 const ROOK_MAGICS: [usize; 64] = [
     0xa8002c000108020, 0x6c00049b0002001, 0x100200010090040, 0x2480041000800801, 0x280028004000800,
     0x900410008040022, 0x280020001001080, 0x2880002041000080, 0xa000800080400034, 0x4808020004000,
@@ -58,6 +60,7 @@ const BISHOP_SHIFTS: [u16; 64] = [
 ];
 
 #[pyclass]
+#[derive(Clone)]
 pub struct MoveGenerator {
     sliding_moves: Vec<Vec<u64>>
 }
@@ -104,7 +107,7 @@ impl MoveGenerator {
     /// legal moves, except they may result in the king
     /// being in check, which is not legal.
     pub fn pseudo_moves(&self, board: &Board) -> Vec<ChessMove> {
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(50);
 
         let to_move = board.to_move();
 
@@ -140,7 +143,7 @@ impl MoveGenerator {
         };
 
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(50);
         let piece_mask = board.pieces[offset + piece_type] | board.pieces[offset + QUEEN];
         for square in get_bits(piece_mask) {
             let blockers = (self_mask | opp_mask) & if piece_type == ROOK {
@@ -184,6 +187,7 @@ impl MoveGenerator {
 
         let rook_bboard = board.pieces[ROOK + offset] | board.pieces[QUEEN + offset];
         let bishop_bboard = board.pieces[BISHOP + offset] | board.pieces[QUEEN + offset];
+        let k_bboard = board.pieces[KING + offset];
 
         let r_blockers = get_rook_cross(square) & blockers;
         let b_blockers = get_bishop_cross(square) & blockers;
@@ -193,8 +197,9 @@ impl MoveGenerator {
 
         let r_moves = self.sliding_moves[square * 2][r_key];
         let b_moves = self.sliding_moves[square * 2 + 1][b_key];
+        let k_moves = get_king_circle(square);
 
-        r_moves & rook_bboard != 0 || b_moves & bishop_bboard != 0
+        r_moves & rook_bboard != 0 || b_moves & bishop_bboard != 0 || k_moves & k_bboard != 0
     }
 
     /// Finds pseudo-legal king moves
@@ -456,6 +461,23 @@ fn get_moves_from_blockers(square: usize, blocker_bitboard: u64, directions: [i1
     moves
 }
 
+/// Returns a mask of all squares surrounding a given square, 
+/// as if accessible by a king
+fn get_king_circle(square: usize) -> u64 {
+    let king_pos: u64 = 1 << square; // Set the king's position as a single bit in a 64-bit integer
+
+    // Calculate attacks
+    let attacks = (king_pos << 8) | (king_pos >> 8) |                // Up and Down
+                  ((king_pos & !0x8080808080808080) << 1) |               // Right (exclude leftmost column wrap)
+                  ((king_pos & !0x0101010101010101) >> 1) |               // Left (exclude rightmost column wrap)
+                  ((king_pos & !0x8080808080808080) << 9) |               // Up-Right
+                  ((king_pos & !0x8080808080808080) >> 7) |               // Down-Right
+                  ((king_pos & !0x0101010101010101) << 7) |               // Up-Left
+                  ((king_pos & !0x0101010101010101) >> 9);                // Down-Left
+
+    attacks
+}
+
 /// Returns a mask of all squares on rank + file as given
 /// Square, excluding those on the edges
 fn get_rook_cross(square: usize) -> u64 {
@@ -589,6 +611,14 @@ mod tests {
 
         let mut board = Board::from_fen("2BB4/4B3/8/7p/k6P/8/4K3/1RB5 b - - 0 1").unwrap();
         assert!(!mg.check(&board));
+    }
+
+    #[test]
+    fn check_get_king_circle() {
+        let mut king = 0;
+        let mut king_circle = get_king_circle(king);
+        assert!(king_circle.count_ones() == 3);
+        assert!((king_circle >> 1) & 0b1 == 1 && (king_circle >> 8) & 0b1 == 1 && (king_circle >> 9) & 0b1 == 1);
     }
 
     #[test]

@@ -1,25 +1,10 @@
 use std::fmt;
 use crate::chess_move::ChessMove;
+use crate::zobrist::ZobristBoardComponent;
 use std::ops::Range;
 use std::panic;
 
 use pyo3::prelude::*;
-
-const START_WHITE_PAWN: u64 = 0xFF << 8;
-const START_WHITE_KNIGHT: u64 = 1 << 1 | 1 << 6;
-const START_WHITE_BISHOP: u64 = 1 << 2 | 1 << 5;
-const START_WHITE_ROOK: u64 = 1 | 1 << 7;
-const START_WHITE_QUEEN: u64 = 1 << 3;
-const START_WHITE_KING: u64 = 1 << 4;
-
-const START_BLACK_PAWN: u64 = 0xFF << 48;
-const START_BLACK_KNIGHT: u64 = 1 << 57 | 1 << 62;
-const START_BLACK_BISHOP: u64 = 1 << 58 | 1 << 61;
-const START_BLACK_ROOK: u64 = 1 << 56 | 1 << 63;
-const START_BLACK_QUEEN: u64 = 1 << 59;
-const START_BLACK_KING: u64 = 1 << 60;
-
-const START_INFO: u64 = 0b11111;
 
 const MOVE_MASK: u64 = 1;
 
@@ -37,8 +22,9 @@ pub const PAWN: usize = 0;
 pub struct Board {
     pub pieces: [u64; 12],
     pub info: u64,
+    pub zobrist: ZobristBoardComponent,
     pieces_stacks: [Vec<u64>; 12],
-    move_stack: Vec<MoveRecord>
+    move_stack: Vec<MoveRecord>,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
@@ -51,66 +37,11 @@ impl Board {
     /// Initializes a board in the
     /// default state
     pub fn new() -> Self {
-        Self {
-            pieces: [
-                START_WHITE_PAWN,
-                START_WHITE_KNIGHT,
-                START_WHITE_BISHOP,
-                START_WHITE_ROOK,
-                START_WHITE_QUEEN,
-                START_WHITE_KING,
-                START_BLACK_PAWN,
-                START_BLACK_KNIGHT,
-                START_BLACK_BISHOP,
-                START_BLACK_ROOK,
-                START_BLACK_QUEEN,
-                START_BLACK_KING
-            ],
-            info: START_INFO,
-            pieces_stacks: Default::default(),
-            move_stack: Vec::new()
-        }
-    }
-
-    fn pieces_from_fen(fen: &str) -> [u64; 12] {
-        let mut square = 0;
-        let mut pieces = [0u64; 12];
-        let mut components = fen.split_whitespace();
-        for c in Self::reverse_fen(components.next().unwrap()).chars() {
-            let idx = match c {
-                '/' => continue,
-                'p' | 'P' => 0,
-                'n' | 'N' => 1,
-                'b' | 'B' => 2,
-                'r' | 'R' => 3,
-                'q' | 'Q' => 4,
-                'k' | 'K' => 5,
-                _ => {
-                    let digit = c.to_digit(10);
-                    match digit {
-                        Some(d) => {
-                            square += d;
-                            continue;
-                        },
-                        None => panic!("Invalid piece type")
-                    }
-                }
-            } + {
-                if c.is_lowercase() {
-                    6
-                } else {
-                    0
-                }
-            };
-            pieces[idx] |= 1 << square;
-            square += 1;
-        }
-        return pieces;
+        Self::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").unwrap()
     }
 
     /// Parses a position from a given FEN
     pub fn from_fen(fen: &str) -> Result<Self, String> {
-        
         let pieces = Self::pieces_from_fen(fen);
         let mut components = fen.split_whitespace();
         components.next();
@@ -147,8 +78,45 @@ impl Board {
             pieces,
             info,
             pieces_stacks: Default::default(),
-            move_stack: Vec::new()
+            move_stack: Vec::new(),
+            zobrist: ZobristBoardComponent::new(&pieces, info)
         })
+    }
+
+    fn pieces_from_fen(fen: &str) -> [u64; 12] {
+        let mut square = 0;
+        let mut pieces = [0u64; 12];
+        let mut components = fen.split_whitespace();
+        for c in Self::reverse_fen(components.next().unwrap()).chars() {
+            let idx = match c {
+                '/' => continue,
+                'p' | 'P' => 0,
+                'n' | 'N' => 1,
+                'b' | 'B' => 2,
+                'r' | 'R' => 3,
+                'q' | 'Q' => 4,
+                'k' | 'K' => 5,
+                _ => {
+                    let digit = c.to_digit(10);
+                    match digit {
+                        Some(d) => {
+                            square += d;
+                            continue;
+                        },
+                        None => panic!("Invalid piece type")
+                    }
+                }
+            } + {
+                if c.is_lowercase() {
+                    6
+                } else {
+                    0
+                }
+            };
+            pieces[idx] |= 1 << square;
+            square += 1;
+        }
+        return pieces;
     }
 
     /// Takes a FEN from standard notion, reverses the ranks
@@ -252,7 +220,7 @@ impl Board {
         let mut promotion_type = usize::MAX;
         let mut castle_type = usize::MAX;
 
-        let mut en_pass = false;
+        let mut en_pass = u16::MAX;
         let mut castle=  0;
 
         match self.get_piece(to, if move_type < 6 {6..12} else {0..6}, blockers) {
@@ -261,7 +229,7 @@ impl Board {
             },
             None => {
                 if (move_type == 0 || move_type == 6) && ChessMove::file(from) != ChessMove::file(to) {
-                    en_pass = true;
+                    en_pass = ChessMove::file(to);
                     capture_type = 6 - move_type;
                 }
             }
@@ -290,17 +258,20 @@ impl Board {
 
 
         self.pieces[move_type] = Self::move_bit(self.pieces[move_type], from, to);
+        self.zobrist.xor(move_type, from);
+        self.zobrist.xor(move_type, to);
 
-        if capture_type != usize::MAX {
-            self.pieces[capture_type] = Self::delete_bit(self.pieces[capture_type], to);
-        }
-        if en_pass {
+        if en_pass != u16::MAX {
             let (capture_type, offset) = if self.info & MOVE_MASK == WHITE {
                 (6, to - 8)
             } else {
                 (0, to + 8)
             };
             self.pieces[capture_type] = Self::delete_bit(self.pieces[capture_type], offset);
+            self.zobrist.xor(capture_type, offset);
+        } else if capture_type != usize::MAX {
+            self.pieces[capture_type] = Self::delete_bit(self.pieces[capture_type], to);
+            self.zobrist.xor(capture_type, to);
         }
 
         if castle_type != usize::MAX {
@@ -309,56 +280,80 @@ impl Board {
             } else {
                 56
             };
-            if ChessMove::file(to) == 6 {
-                self.pieces[castle_type] = Self::move_bit(self.pieces[castle_type], offset + 7, offset + 5);
+            let (src_offset, dst_offset) = if ChessMove::file(to) == 6 {
+                (offset + 7, offset + 5)
             } else {
-                self.pieces[castle_type] = Self::move_bit(self.pieces[castle_type], offset, offset + 3);
-            }
+                (offset, offset + 3)
+            };
+            self.pieces[castle_type] = Self::move_bit(self.pieces[castle_type], src_offset, dst_offset);
+            self.zobrist.xor(castle_type, src_offset);
+            self.zobrist.xor(castle_type, dst_offset);
         }
 
         if promotion_type != usize::MAX {
             self.pieces[move_type] = Self::delete_bit(self.pieces[move_type], to);
             self.pieces[promotion_type] |= 1 << to;
+            self.zobrist.xor(move_type, to);
+            self.zobrist.xor(promotion_type, to);
         }
 
+        for i in 0..8 {
+            let info_idx = i + if self.to_move() == WHITE { 5 } else { 13 };
+            if (self.info >> info_idx & 1) == 1 {
+                self.zobrist.xor_info(info_idx);
+            }
+        }
         let clear_enpass_mask = !(0b111111111111111100000);
         self.info &= clear_enpass_mask;
         if move_type == 0 && ChessMove::rank(from) + 2 == ChessMove::rank(to) {
-            self.info |= 1 << (13 + ChessMove::file(to));
+            let info_idx = 13 + ChessMove::file(to);
+            self.info |= 1 << info_idx;
+            self.zobrist.xor_info(info_idx);
         }
         if move_type == 6 && ChessMove::rank(from) == ChessMove::rank(to) + 2 {
-            self.info |= 1 << (5 + ChessMove::file(to));
+            let info_idx: u16 = 5 + ChessMove::file(to);
+            self.info |= 1 << info_idx;
+            self.zobrist.xor_info(info_idx);
         }
 
         if self.info & MOVE_MASK == WHITE {
             if self.info >> 1 & 1 == 1 && (move_type == 5 || (move_type == 3 && from == 7)) {
                 self.info = Self::delete_bit(self.info, 1);
+                self.zobrist.xor_info(1);
             }
             if self.info >> 2 & 1 == 1 && (move_type == 5 || (move_type == 3 && from == 0)) {
                 self.info = Self::delete_bit(self.info, 2);
+                self.zobrist.xor_info(2);
             }
         } else {
             if self.info >> 3 & 1 == 1 && (move_type == 11 || (move_type == 9 && from == 63)) {
                 self.info = Self::delete_bit(self.info, 3);
+                self.zobrist.xor_info(3);
             }
             if self.info >> 4 & 1 == 1 && (move_type == 11 || (move_type == 9 && from == 56)) {
                 self.info = Self::delete_bit(self.info, 4);
+                self.zobrist.xor_info(4);
             }
         }
-        if to == 7 && capture_type == ROOK {
+        if self.info >> 1 & 1 == 1 && to == 7 && capture_type == ROOK {
             self.info = Self::delete_bit(self.info, 1);
+            self.zobrist.xor_info(1);
         }
-        if to == 0 && capture_type == ROOK {
+        if self.info >> 2 & 1 == 1 && to == 0 && capture_type == ROOK {
             self.info = Self::delete_bit(self.info, 2);
+            self.zobrist.xor_info(2);
         }
-        if to == 63 && capture_type == ROOK + 6 {
+        if self.info >> 3 & 1 == 1 && to == 63 && capture_type == ROOK + 6 {
             self.info = Self::delete_bit(self.info, 3);
+            self.zobrist.xor_info(3);
         }
-        if to == 56 && capture_type == ROOK + 6 {
+        if self.info >> 4 & 1 == 1 && to == 56 && capture_type == ROOK + 6 {
             self.info = Self::delete_bit(self.info, 4);
+            self.zobrist.xor_info(4);
         }
 
         self.info ^= MOVE_MASK;
+        self.zobrist.xor_info(0);
     }
 
     /// Returns board to state of previous move
@@ -366,10 +361,25 @@ impl Board {
     /// panics if not
     pub fn pop_move(&mut self) {
         let move_record = self.move_stack.pop().unwrap();
+
+        let mut info_diff = self.info ^ move_record.info;
+        while info_diff.count_ones() > 0 {
+            self.zobrist.xor_info(info_diff.trailing_zeros() as u16);
+            info_diff &= !(1 << info_diff.trailing_zeros());
+        }
         self.info = move_record.info;
+
         for piece_type in 0..12 {
             if move_record.moved >> piece_type & 1 == 1 {
-                self.pieces[piece_type] = self.pieces_stacks[piece_type].pop().unwrap();
+                let old = self.pieces_stacks[piece_type].pop().unwrap();
+                let mut diff = self.pieces[piece_type] ^ old;
+                
+                while diff.count_ones() > 0 {
+                    self.zobrist.xor(piece_type, diff.trailing_zeros() as u16);
+                    diff &= !(1 << diff.trailing_zeros());
+                }
+                
+                self.pieces[piece_type] = old;
             }
         }
     }
@@ -386,6 +396,30 @@ impl Board {
             }
         }
         None
+    }
+
+    /// Swaps sides of the board
+    pub fn reflect_pieces(&self) -> [u64; 12] {
+        let mut reflected = [0u64; 12];
+        for i in 0..=11 {
+            reflected[i] = self.pieces[i];
+        }
+
+        for piece in 0..=11 {
+            for rank in 0..=3 {
+                let shift1 = rank * 8usize;
+                let shift2 = (7 - rank) * 8usize; 
+
+                let tmp = (reflected[piece] >> shift1) & 0b11111111;
+
+                reflected[piece] &= !(0b11111111 << shift1);
+                reflected[piece] |= ((reflected[piece] >> shift2) & 0b11111111) << shift1;
+
+                reflected[piece] &= !(0b11111111 << shift2);
+                reflected[piece] |= tmp << shift2;
+            }
+        }
+        return reflected;
     }
 
     pub fn move_bit(value: u64, source_index: u16, destination_index: u16) -> u64 {
@@ -730,6 +764,7 @@ mod tests {
             while let Some(line1) = lines.next() {
                 if let Some(line2) = lines.next() {
                     let old_fen = board.to_fen();
+                    let old_zobrist = board.zobrist.clone();
 
                     let chess_move = line1?;
                     let target_fen = line2?;
@@ -738,6 +773,7 @@ mod tests {
 
                     board.pop_move();
                     assert!(board.fen_eq(&old_fen));
+                    assert!(board.zobrist.eq(&old_zobrist), "played {chess_move} from {old_fen} and zobrist hashes didn't align on pop");
 
                     board.push_move(ChessMove::from_str(&chess_move).unwrap());
                 }
@@ -750,9 +786,11 @@ mod tests {
     fn test_enpass_push_pop() {
         let fen = "r3k2r/p1ppqpb1/1n2pnp1/1b1PN3/Pp2P3/2N2Q1p/1PPBBPPP/1R2K2R b Kkq a3";
         let mut board = Board::from_fen(fen).unwrap();
+        let old_zobrist = board.zobrist.clone();
         board.push_move(ChessMove::from_str("b4a3").unwrap());
         board.pop_move();
         assert!(board.fen_eq(fen));
+        assert!(board.zobrist.eq(&old_zobrist));
     }
 
     #[test]

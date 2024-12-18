@@ -1,0 +1,2 @@
+# Engine
+We are going to look for the best move by doing minimax tree search with alpha-beta pruning and a simple static evaluation function. We have a ML model to rank moves, which should make A-B pruning more effective.

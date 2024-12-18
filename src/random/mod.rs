@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[allow(unused)]
 fn get_sys_time() -> u64 {
     let start = SystemTime::now();
     let since_the_epoch = start
@@ -14,23 +13,27 @@ pub struct Rng {
     inc: u64
 }
 
-#[allow(unused)]
 impl Rng {
 
     /// Initialize the random number generator
+    #[allow(unused)]
     pub fn new() -> Self {
-        Self {
+        let mut rng = Self {
             state: get_sys_time(),
             inc: !get_sys_time()
-        }
+        };
+        rng.random();
+        rng
     }
 
     /// initialize the random number generator with deterministic behavior
     pub fn new_deterministic(state: u64, inc: u64) -> Self {
-        Self {
+        let mut rng = Self {
             state,
             inc
-        }
+        };
+        rng.random();
+        rng
     }
 
     /// Generate a uniform random unsigned integer
@@ -44,6 +47,7 @@ impl Rng {
 
     /// Get random number within range.
     /// Only works if low and high are both positive
+    #[allow(unused)]
     pub fn bounded_random(&mut self, low: u64, high: u64) -> u64 {
         assert!(high > low, "high must be > low");
         let bound = high - low;
@@ -70,9 +74,9 @@ mod tests {
     #[test]
     fn test_bounded_random() {
         let mut rng = Rng::new();
-        let mut low = 10;
-        let mut high = 100;
-        for i in 0..100 {
+        let low = 10;
+        let high = 100;
+        for _ in 0..100 {
             let x = rng.bounded_random(low, high);
             assert!(x >= low);
             assert!(x < high);

@@ -2,6 +2,8 @@ mod chess_move;
 mod random;
 mod board;
 mod move_generator;
+mod engine;
+mod zobrist;
 
 use std::io::{self, BufRead, Write};
 use std::fs::File;
@@ -9,6 +11,7 @@ use std::fs::File;
 use crate::board::Board;
 use crate::move_generator::MoveGenerator;
 use crate::chess_move::ChessMove;
+use crate::engine::Engine;
 
 struct GameManager {
     board: Board,

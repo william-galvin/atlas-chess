@@ -2,6 +2,7 @@ mod chess_move;
 mod random;
 mod board;
 mod move_generator;
+mod zobrist;
 
 use crate::move_generator::MoveGenerator;
 use crate::board::Board;
