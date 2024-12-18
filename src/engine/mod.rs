@@ -201,7 +201,7 @@ fn count_pieces(board: &Board) -> i16 {
 
 #[cfg(test)]
 mod tests {
-    use crate::constants;
+    use crate::constants::{self, NN_WEIGHTS};
     use super::*;
     
     use std::io::{self, BufRead};
@@ -212,7 +212,7 @@ mod tests {
     fn engine_test() -> Result<(), ()> {
         let engine = Engine::new(
             MoveGenerator::new(), 
-            "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.onnx",
+            NN_WEIGHTS,
             4,
             constants::GIB / 2048
         ).unwrap();
@@ -235,7 +235,7 @@ mod tests {
     fn can_find_mate_in_2() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
+            NN_WEIGHTS,
             3,
             constants::GIB / 1024
         )?;
@@ -268,7 +268,7 @@ mod tests {
     fn can_find_mate_in_3() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
+            NN_WEIGHTS,
             5,
             constants::GIB / 8
         )?;
@@ -302,7 +302,7 @@ mod tests {
     fn can_find_mate_in_four_simple() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
+            NN_WEIGHTS,
             7,
             constants::GIB / 2048
         )?;
@@ -319,7 +319,7 @@ mod tests {
     fn can_find_mate_in_five_simple() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
+            NN_WEIGHTS,
             9,
             constants::GIB / 2048
         )?;
@@ -340,7 +340,7 @@ mod tests {
 
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
+            NN_WEIGHTS,
             7,
             constants::GIB
         )?;

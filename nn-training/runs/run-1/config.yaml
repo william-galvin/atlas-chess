@@ -4,7 +4,7 @@ pretrain: true
 epochs: 100
 batch_size: 512
 
-train_data: "/Users/williamgalvin/Documents/chess/atlas-chess-engine/data/lichess_elite_2020-09.zip"
+train_data: "data/lichess_elite_2020-09.zip"
 test_data: .025
 valid_data: .025
 

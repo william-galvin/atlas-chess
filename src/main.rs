@@ -25,7 +25,7 @@ impl GameManager {
             board: Board::new(),
             engine: Engine::new(
                 MoveGenerator::new(), 
-                "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.quant.onnx",
+                constants::NN_WEIGHTS,
                 7,
                 constants::TT_CACHE_SIZE
             ).unwrap(),
