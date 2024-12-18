@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: nn-training
+Version: 0.1
+Author: William Galvin
+Requires-Dist: atlas-chess
+Requires-Dist: numpy
+Requires-Dist: h5py
+Requires-Dist: hdf5plugin
+Requires-Dist: Pillow
+Requires-Dist: pytest
+Requires-Dist: sqlitedict
+Requires-Dist: torch

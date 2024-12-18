@@ -1,0 +1,8 @@
+atlas-chess
+numpy
+h5py
+hdf5plugin
+Pillow
+pytest
+sqlitedict
+torch

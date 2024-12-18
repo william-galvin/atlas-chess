@@ -1,0 +1,16 @@
+setup.py
+src/create_dataset.py
+src/dataloader.py
+src/evaluation.py
+src/inference.py
+src/main.py
+src/manual.py
+src/nn.py
+src/util.py
+src/nn_training.egg-info/PKG-INFO
+src/nn_training.egg-info/SOURCES.txt
+src/nn_training.egg-info/dependency_links.txt
+src/nn_training.egg-info/requires.txt
+src/nn_training.egg-info/top_level.txt
+test/test_dataloader.py
+test/test_util.py
