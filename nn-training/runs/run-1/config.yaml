@@ -1,0 +1,21 @@
+run_name: run-liger-3
+pretrain: true
+
+epochs: 100
+batch_size: 512
+
+train_data: "data/lichess_elite_2020-09.zip"
+test_data: .025
+valid_data: .025
+
+optimizer: AdamW
+optimizer_kwargs: 
+  lr: .000125
+
+valid_frequency: 50
+checkpoint_frequency: 500
+
+num_layers: 16
+num_layers_decoder: 6
+dropout: .1
+dim_feedforward: 1024

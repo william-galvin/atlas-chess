@@ -2,24 +2,32 @@ mod chess_move;
 mod random;
 mod board;
 mod move_generator;
+mod engine;
+mod zobrist;
+mod constants;
 
 use std::io::{self, BufRead, Write};
 use std::fs::File;
 
 use crate::board::Board;
+use crate::engine::Engine;
 use crate::move_generator::MoveGenerator;
 use crate::chess_move::ChessMove;
 
 struct GameManager {
     board: Board,
-    move_generator: MoveGenerator
+    engine: Engine,
 }
 
 impl GameManager {
     fn new() -> Self {
         Self {
             board: Board::new(),
-            move_generator: MoveGenerator::new()
+            engine: Engine::new(
+                MoveGenerator::new(), 
+                7,
+                constants::TT_CACHE_SIZE
+            ).unwrap(),
         }
     }
 }
@@ -33,41 +41,46 @@ fn main() -> io::Result<()> {
         let input= line?;
         writeln!(log, "{}", input)?;
         let msg: Vec<&str> = input.split_whitespace().collect();
+
+        if msg.is_empty() {
+            continue;
+        }
+
         match msg[0] {
             "uci" => {
-                println!("id name Atlas");
+                println!("id name Atlas100");
                 println!("id author William Galvin");
                 println!("uciok");
             },
             "isready" => {
                 println!("readyok");
             },
-            "ucinewgame" => {
-                game_manager = GameManager::new()
-            },
+            "ucinewgame" => {},
             "position" => {
+                let moves_offset;
                 game_manager.board = match msg[1] {
                     "startpos" => {
+                        moves_offset = 3;
                         Board::new()
                     },
                     "fen" => {
-                        let mut board = Board::from_fen(&msg[2..=7].join(" ")).unwrap();
-                        if msg.len() > 9 {
-                            for s in &msg[9..] {
-                                match ChessMove::from_str(s) {
-                                    Ok(valid_move) => board.push_move(valid_move),
-                                    Err(e) => print!("Error: {}", e)
-                                };
-                            }
-                        }
-                        board
+                        moves_offset = 9;
+                        Board::from_fen(&msg[2..=7].join(" ")).unwrap()
                     },
                     _ => panic!("Failed to parse position")
+                };
+                if msg.len() > moves_offset {
+                    for s in &msg[moves_offset..] {
+                        match ChessMove::from_str(s) {
+                            Ok(valid_move) => game_manager.board.push_move(valid_move),
+                            Err(e) => print!("Error: {}", e)
+                        };
+                    }
                 }
             },
             "go" => {
-                let moves = game_manager.move_generator.moves(&mut game_manager.board);
-                println!("bestmove {}", moves[0]);
+                let best_move = game_manager.engine.go(&game_manager.board).unwrap();
+                println!("bestmove {:#}", best_move.0.unwrap());
             }
             _ => {
                 println!("Unknown command entered: {}", msg.join(" "));

@@ -1,0 +1,11 @@
+[build]
+rustflags = ["-g"]
+
+[env]
+RUST_BACKTRACE = "full"
+
+[profile.release]
+debug = true
+
+[alias]
+test-dev = "test --no-default-features --release -- --nocapture"

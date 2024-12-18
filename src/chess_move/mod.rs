@@ -4,7 +4,7 @@ const FROM_MASK: u16 =    0b0000000000111111;
 const TO_MASK: u16 =      0b0000111111000000;
 const SPECIAL_MASK: u16 = 0b1111000000000000;
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Default)]
 pub struct ChessMove {
     data: u16
 }
@@ -30,6 +30,7 @@ impl ChessMove {
     /// For example, e2e4, e2e4, e1g1 (castling), e7e8q (promotion)
     /// Leaves the `SPECIAL` field blank, except for promotions
     pub fn from_str(s_move: &str) -> Result<Self, String> {
+        let s_move = s_move.trim();
         let promotion = match s_move.len() {
             5 => {
                 match s_move.chars().last().unwrap() {
@@ -37,7 +38,7 @@ impl ChessMove {
                     'b' | 'B' => 5,
                     'r' | 'R' => 6,
                     'q' | 'Q' => 7,
-                    _ => return Err("Unsupported promotion type".to_string())
+                    _ => return Err(format!("Unsupported promotion type for {}", s_move))
                 }
             },
             4 => 0,
@@ -82,6 +83,24 @@ impl ChessMove {
         let file = n % 8;
         let rank = n / 8;
         format!("{}{}", (file as u8 + b'a') as char, rank + 1)
+    }
+
+    /// Reflects the move as if it had been played from the other color
+    pub fn reflect(&self) -> Self {
+        let from_rank = 7 - Self::rank(self.from());
+        let to_rank = 7 - Self::rank(self.to());
+        
+        let from_square = Self::file(self.from()) + 8 * from_rank;
+        let to_square = Self::file(self.to()) + 8 * to_rank;
+
+        Self { 
+            data: from_square | to_square << 6 | self.special() << 12
+        }
+    }
+
+    /// Returns true if the move is a real move
+    pub fn non_default(&self) -> bool {
+        self.data != 0
     }
 
     /// Returns rank (0-7)
@@ -217,5 +236,14 @@ mod tests {
     fn test_capital_promotion() {
         let cm = ChessMove::from_str("a7a8Q").unwrap();
         assert_eq!(format!("{}", cm), "a7a8q");
+    }
+
+    #[test]
+    fn test_reflect_basic() {
+        let cm = ChessMove::from_str("a7a8Q").unwrap();
+        assert_eq!(format!("{}", cm.reflect()), "a2a1q");
+
+        let cm1 = ChessMove::from_str("b3c6").unwrap();
+        assert_eq!(format!("{}", cm1.reflect()), "b6c3");
     }
 }

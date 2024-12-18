@@ -58,6 +58,7 @@ const BISHOP_SHIFTS: [u16; 64] = [
 ];
 
 #[pyclass]
+#[derive(Clone)]
 pub struct MoveGenerator {
     sliding_moves: Vec<Vec<u64>>
 }
@@ -76,6 +77,12 @@ impl MoveGenerator {
                 .map(|c| c.to_string())
                 .collect()
         )
+    }
+}
+
+impl Default for MoveGenerator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -104,7 +111,7 @@ impl MoveGenerator {
     /// legal moves, except they may result in the king
     /// being in check, which is not legal.
     pub fn pseudo_moves(&self, board: &Board) -> Vec<ChessMove> {
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(50);
 
         let to_move = board.to_move();
 
@@ -140,7 +147,7 @@ impl MoveGenerator {
         };
 
 
-        let mut moves = Vec::new();
+        let mut moves = Vec::with_capacity(50);
         let piece_mask = board.pieces[offset + piece_type] | board.pieces[offset + QUEEN];
         for square in get_bits(piece_mask) {
             let blockers = (self_mask | opp_mask) & if piece_type == ROOK {
@@ -184,6 +191,7 @@ impl MoveGenerator {
 
         let rook_bboard = board.pieces[ROOK + offset] | board.pieces[QUEEN + offset];
         let bishop_bboard = board.pieces[BISHOP + offset] | board.pieces[QUEEN + offset];
+        let k_bboard = board.pieces[KING + offset];
 
         let r_blockers = get_rook_cross(square) & blockers;
         let b_blockers = get_bishop_cross(square) & blockers;
@@ -193,8 +201,9 @@ impl MoveGenerator {
 
         let r_moves = self.sliding_moves[square * 2][r_key];
         let b_moves = self.sliding_moves[square * 2 + 1][b_key];
+        let k_moves = get_king_circle(square);
 
-        r_moves & rook_bboard != 0 || b_moves & bishop_bboard != 0
+        r_moves & rook_bboard != 0 || b_moves & bishop_bboard != 0 || k_moves & k_bboard != 0
     }
 
     /// Finds pseudo-legal king moves
@@ -391,7 +400,7 @@ fn validate_move(square: u16, jump: i16, threshold: u16) -> Option<u16> {
     let to_file = ChessMove::file(to);
     let from_file = ChessMove::file(square);
 
-    let diff = (to_file as i16 - from_file as i16).abs() as u16;
+    let diff = (to_file as i16 - from_file as i16).unsigned_abs();
 
     if diff <= threshold {
         Some(to)
@@ -454,6 +463,23 @@ fn get_moves_from_blockers(square: usize, blocker_bitboard: u64, directions: [i1
         }
     }
     moves
+}
+
+/// Returns a mask of all squares surrounding a given square, 
+/// as if accessible by a king
+fn get_king_circle(square: usize) -> u64 {
+    let king_pos: u64 = 1 << square; // Set the king's position as a single bit in a 64-bit integer
+
+    // Calculate attacks
+                    // Down-Left
+
+    (king_pos << 8) | (king_pos >> 8) |                // Up and Down
+                  ((king_pos & !0x8080808080808080) << 1) |               // Right (exclude leftmost column wrap)
+                  ((king_pos & !0x0101010101010101) >> 1) |               // Left (exclude rightmost column wrap)
+                  ((king_pos & !0x8080808080808080) << 9) |               // Up-Right
+                  ((king_pos & !0x8080808080808080) >> 7) |               // Down-Right
+                  ((king_pos & !0x0101010101010101) << 7) |               // Up-Left
+                  ((king_pos & !0x0101010101010101) >> 9)
 }
 
 /// Returns a mask of all squares on rank + file as given
@@ -521,26 +547,26 @@ pub fn perft(depth: i32, board: &mut Board, move_gen: &MoveGenerator) -> usize {
 mod tests {
     use super::*;
     use std::io::{self, BufRead};
-    use std::fs::{File, read_dir};
+    use std::fs::File;
     use std::time::{Instant};
 
     #[test]
     fn check_test_knight() {
         let mg = MoveGenerator::new();
 
-        let mut board = Board::from_fen("r1bqk2r/p1p1b1pp/3p1p2/1p2p3/4PP2/1PNB1nP1/1BPPQ2P/R3NRK1 w kq - 3 13").unwrap();
+        let board = Board::from_fen("r1bqk2r/p1p1b1pp/3p1p2/1p2p3/4PP2/1PNB1nP1/1BPPQ2P/R3NRK1 w kq - 3 13").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("r1bqk2r/p1p1b1p1/3p1p1p/1p2p3/4PP2/1PNB1nP1/1BPPQ2P/R3NR1K w kq - 0 14").unwrap();
+        let board = Board::from_fen("r1bqk2r/p1p1b1p1/3p1p1p/1p2p3/4PP2/1PNB1nP1/1BPPQ2P/R3NR1K w kq - 0 14").unwrap();
         assert!(!mg.check(&board));
 
-        let mut board = Board::from_fen("r1bqk2r/p1N1b1p1/3p1p1p/1p2p3/4PP2/1P1B2P1/1BPPQ2P/R3nR1K b kq - 0 15").unwrap();
+        let board = Board::from_fen("r1bqk2r/p1N1b1p1/3p1p1p/1p2p3/4PP2/1P1B2P1/1BPPQ2P/R3nR1K b kq - 0 15").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("r1b1k2r/pRq1b1p1/3p1p1p/4p3/4PP2/1n4P1/1BPPQ2P/5R1K w kq - 0 19").unwrap();
+        let board = Board::from_fen("r1b1k2r/pRq1b1p1/3p1p1p/4p3/4PP2/1n4P1/1BPPQ2P/5R1K w kq - 0 19").unwrap();
         assert!(!mg.check(&board));
 
-        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/3NP3/1k6/5N2/P1PP1PPP/R1BQKB1R b KQ - 1 6").unwrap();
+        let board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/3NP3/1k6/5N2/P1PP1PPP/R1BQKB1R b KQ - 1 6").unwrap();
         assert!(mg.check(&board));
     }
 
@@ -548,13 +574,13 @@ mod tests {
     fn check_test_pawn() {
         let mg = MoveGenerator::new();
 
-        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/3kp3/4P3/8/2N2N2/PPPP1PPP/R1BQKB1R b KQ - 0 4").unwrap();
+        let board = Board::from_fen("rnbq1bnr/pppp1ppp/3kp3/4P3/8/2N2N2/PPPP1PPP/R1BQKB1R b KQ - 0 4").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/2k1P3/8/2N2N2/PPPP1PPP/R1BQKB1R w KQ - 1 5").unwrap();
+        let board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/2k1P3/8/2N2N2/PPPP1PPP/R1BQKB1R w KQ - 1 5").unwrap();
         assert!(! mg.check(&board));
 
-        let mut board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/2k1P3/1P6/2N2N2/P1PP1PPP/R1BQKB1R b KQ - 0 5").unwrap();
+        let board = Board::from_fen("rnbq1bnr/pppp1ppp/4p3/2k1P3/1P6/2N2N2/P1PP1PPP/R1BQKB1R b KQ - 0 5").unwrap();
         assert!(mg.check(&board));
     }
 
@@ -562,16 +588,16 @@ mod tests {
     fn test_check_rook_under() {
         let mg = MoveGenerator::new();
 
-        let mut board = Board::from_fen("8/8/8/7p/1k5P/8/4K3/1R6 b - - 0 1").unwrap();
+        let board = Board::from_fen("8/8/8/7p/1k5P/8/4K3/1R6 b - - 0 1").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("8/8/8/7p/k6P/8/4K3/1R6 b - - 0 1").unwrap();
+        let board = Board::from_fen("8/8/8/7p/k6P/8/4K3/1R6 b - - 0 1").unwrap();
         assert!(!mg.check(&board));
 
-        let mut board = Board::from_fen("8/8/8/7p/k6P/8/N3K3/R7 b - - 0 1").unwrap();
+        let board = Board::from_fen("8/8/8/7p/k6P/8/N3K3/R7 b - - 0 1").unwrap();
         assert!(!mg.check(&board));
 
-        let mut board = Board::from_fen("8/8/8/7p/k6P/8/4K3/Q1N5 b - - 0 1").unwrap();
+        let board = Board::from_fen("8/8/8/7p/k6P/8/4K3/Q1N5 b - - 0 1").unwrap();
         assert!(mg.check(&board));
     }
 
@@ -584,11 +610,19 @@ mod tests {
     fn check_bishop() {
         let mg = MoveGenerator::new();
 
-        let mut board = Board::from_fen("8/3B4/8/7p/k6P/8/4K3/1R6 b - - 0 1").unwrap();
+        let board = Board::from_fen("8/3B4/8/7p/k6P/8/4K3/1R6 b - - 0 1").unwrap();
         assert!(mg.check(&board));
 
-        let mut board = Board::from_fen("2BB4/4B3/8/7p/k6P/8/4K3/1RB5 b - - 0 1").unwrap();
+        let board = Board::from_fen("2BB4/4B3/8/7p/k6P/8/4K3/1RB5 b - - 0 1").unwrap();
         assert!(!mg.check(&board));
+    }
+
+    #[test]
+    fn check_get_king_circle() {
+        let king = 0;
+        let king_circle = get_king_circle(king);
+        assert!(king_circle.count_ones() == 3);
+        assert!((king_circle >> 1) & 0b1 == 1 && (king_circle >> 8) & 0b1 == 1 && (king_circle >> 9) & 0b1 == 1);
     }
 
     #[test]
