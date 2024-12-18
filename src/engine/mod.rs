@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use crate::board::{Board, WHITE};
-use crate::constants::{N_ONNX_THREADS, DEEP_MOVE_ORDERING_DEPTH};
+use crate::constants::{DEEP_MOVE_ORDERING_DEPTH, NN_WEIGHTS, N_ONNX_THREADS};
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
 use crate::move_generator::MoveGenerator;
 use crate::chess_move::ChessMove;
@@ -12,17 +14,18 @@ use ndarray::Array3;
 
 pub struct Engine {
     move_generator: MoveGenerator,
-    transposition_table: ZobristHashTable,
+    transposition_table: std::sync::Arc<ZobristHashTable>,
     nn: Session,
     depth: u8
 }
 
 impl Engine {
-    pub fn new(move_generator: MoveGenerator, weights_path: &str, depth: u8, cache_size: usize) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(move_generator: MoveGenerator, depth: u8, cache_size: usize) -> Result<Self, Box<dyn std::error::Error>> {
+        let weights_path = get_weights();
         let nn = Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_intra_threads(N_ONNX_THREADS)?
-                .commit_from_file(weights_path)?;
+                .commit_from_file(weights_path.to_str().unwrap())?;
 
         let transposition_table = ZobristHashTable::new(cache_size);
 
@@ -42,13 +45,13 @@ impl Engine {
         for d in 3..depth {
             let _ = negamax(
                 root, d, d, i16::MIN + 1, i16::MAX - 1, color,
-                &mut self.transposition_table, &self.move_generator, &self.nn
+                self.transposition_table.clone(), &self.move_generator, &self.nn
             );
         }
 
         negamax(
             root, depth, depth, i16::MIN + 1, i16::MAX - 1, color,
-            &mut self.transposition_table, &self.move_generator, &self.nn
+            self.transposition_table.clone(), &self.move_generator, &self.nn
         )
     }
 }
@@ -62,7 +65,7 @@ fn negamax(
     mut alpha: i16,
     beta: i16,
     color: i16,
-    transposition_table: &mut ZobristHashTable,
+    transposition_table: std::sync::Arc<ZobristHashTable>,
     move_generator: &MoveGenerator,
     nn: &Session,
 ) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
@@ -123,7 +126,7 @@ fn negamax(
         root.push_move(child);
         let (_child_move, child_value) = negamax(
             root, depth - 1, max_depth, -beta, -alpha, -color,
-            transposition_table, move_generator, nn
+            transposition_table.clone(), move_generator, nn
         )?;
         root.pop_move();
 
@@ -198,10 +201,37 @@ fn count_pieces(board: &Board) -> i16 {
     sum
 }
 
+fn get_weights() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .expect("Failed to get the current executable path")
+        .parent()
+        .expect("Executable path has no parent")
+        .to_path_buf();
+
+    let mut weights = exe_dir.join(NN_WEIGHTS);
+    if !weights.exists() {
+        let exe_dir = std::env::current_exe()
+        .expect("Failed to get the current executable path")
+        .parent()
+        .expect("Executable path has no parent")
+        .parent()
+        .expect("Executable path has no parent")
+        .to_path_buf();
+
+        weights = exe_dir.join(NN_WEIGHTS);
+    }
+
+    if !weights.exists() {
+        panic!("weights don't exist");
+    }
+
+    weights
+}
+
 
 #[cfg(test)]
 mod tests {
-    use crate::constants::{self, NN_WEIGHTS};
+    use crate::constants;
     use super::*;
     
     use std::io::{self, BufRead};
@@ -212,7 +242,6 @@ mod tests {
     fn engine_test() -> Result<(), ()> {
         let engine = Engine::new(
             MoveGenerator::new(), 
-            NN_WEIGHTS,
             4,
             constants::GIB / 2048
         ).unwrap();
@@ -235,7 +264,6 @@ mod tests {
     fn can_find_mate_in_2() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            NN_WEIGHTS,
             3,
             constants::GIB / 1024
         )?;
@@ -268,7 +296,6 @@ mod tests {
     fn can_find_mate_in_3() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            NN_WEIGHTS,
             5,
             constants::GIB / 8
         )?;
@@ -302,7 +329,6 @@ mod tests {
     fn can_find_mate_in_four_simple() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            NN_WEIGHTS,
             7,
             constants::GIB / 2048
         )?;
@@ -319,7 +345,6 @@ mod tests {
     fn can_find_mate_in_five_simple() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            NN_WEIGHTS,
             9,
             constants::GIB / 2048
         )?;
@@ -340,7 +365,6 @@ mod tests {
 
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            NN_WEIGHTS,
             7,
             constants::GIB
         )?;

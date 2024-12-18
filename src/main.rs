@@ -25,7 +25,6 @@ impl GameManager {
             board: Board::new(),
             engine: Engine::new(
                 MoveGenerator::new(), 
-                constants::NN_WEIGHTS,
                 7,
                 constants::TT_CACHE_SIZE
             ).unwrap(),

@@ -1,10 +1,6 @@
-use std::{fmt::Debug, mem::size_of, ops::Index, sync::Arc};
+use std::{cell::{RefCell, UnsafeCell}, fmt::Debug, mem::size_of, ops::{Index, IndexMut}, rc::Rc, sync::{Arc, Mutex, RwLock}, u64};
 
-use crate::{
-    chess_move::ChessMove, 
-    random::Rng,
-    constants::TT_CACHE_SIZE,
-};
+use crate::{board::Board, chess_move::ChessMove, random::Rng};
 
 pub trait Uint: Sized {
     fn from_u64_truncate(value: u64) -> Self;
@@ -24,21 +20,18 @@ macro_rules! impl_uint {
 
 impl_uint!(u8, u16, u32, u64, usize, u128);
 
+pub const GIB: usize = 1_073_741_824;
 const N_FEATURES: usize = 64 * 12 + 22;
 const ENTRY_SIZE: usize = size_of::<ZobristHashTableEntry>();
-const N_ENTRIES: usize = TT_CACHE_SIZE / ENTRY_SIZE;
+const CACHE_SIZE: usize = GIB / 4; // TODO: put in config, remove from ::new param
+const N_ENTRIES: usize = CACHE_SIZE / ENTRY_SIZE;
 
 
-/// Table of N_FEATURES random bitstrings to 
-/// incrementally update board hashes
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 struct ZobristLookupTable<U: Uint> {
     features: [U; N_FEATURES],
 }
 
-/// Element belonging to a Board instance, 
-/// with 64 bit hash (key), 16 bit hash (checksum), 
-/// and references to lookup tables
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct ZobristBoardComponent {
     pub z_key: u64,
@@ -47,14 +40,19 @@ pub struct ZobristBoardComponent {
     z16: Arc<ZobristLookupTable<u16>>,
 }
 
-/// Heap allocated hash table for use in engine cache
+/// Thread intentionally unsafe, heap allocated hash table.
+/// Zobrist hash tables always have many, many collisions -
+/// this implementation intentionally allows data races with 
+/// `unsafe` put and get methods. The caller should check the returned
+/// value's checksum.
+/// 
+/// Caller's should wrap with Arc to send between threads.
 pub struct ZobristHashTable {
-    data: Box<[ZobristHashTableEntry; N_ENTRIES]>
+    data: UnsafeCell<[ZobristHashTableEntry; N_ENTRIES]>
 }
 
-/// Entry into ZobristHashTable where z_sum is the 16 bit checksum, 
-/// depth is the searched depth at the node, eval and chess_move are 
-/// previously returned from `go`
+unsafe impl Sync for ZobristHashTable {}
+
 #[derive(Default, Clone, Copy)]
 pub struct ZobristHashTableEntry {
     pub z_sum: u16,
@@ -130,20 +128,25 @@ impl ZobristBoardComponent {
 }
 
 impl ZobristHashTable {
-    pub fn new(_cache_size: usize) -> Self {
-        let data: Box<[ZobristHashTableEntry; N_ENTRIES]> = Box::new(
+    pub fn new(_cache_size: usize) -> Arc<Self> {
+        let data: UnsafeCell<[ZobristHashTableEntry; N_ENTRIES]> = UnsafeCell::new(
             std::array::from_fn(|_| ZobristHashTableEntry::default())
         );
 
-        Self { data }
+        Arc::new(Self { data })
     }
 
-    pub fn put(&mut self, key: u64, value: ZobristHashTableEntry) {
-        self.data[key as usize % N_ENTRIES] = value;
+    pub fn put(&self, key: u64, value: ZobristHashTableEntry) {
+        unsafe {
+            let entry = &mut (*self.data.get())[key as usize % N_ENTRIES];
+            *entry = value;
+        }
     }
 
     pub fn get(&self, key: u64) -> ZobristHashTableEntry {
-        self.data[key as usize % N_ENTRIES]
+        unsafe {
+            return (*self.data.get())[key as usize % N_ENTRIES];
+        }
     }
 }
 
@@ -154,8 +157,10 @@ impl ZobristHashTableEntry {
 }
 
 #[cfg(test)]
-mod tests {    
+mod tests {
+    use super::*;
     use crate::{board::Board, chess_move::ChessMove};
+    use std::thread;
 
     #[test]
     fn zobrist_push_pop_pawn_push() -> Result<(), Box<dyn std::error::Error>> {
@@ -194,6 +199,21 @@ mod tests {
         board.pop_move();
         assert!(board.zobrist.eq(&old_zobrist));
 
+        Ok(())
+    }
+
+    #[test]
+    fn hash_table_threadsafe_sort_of() -> Result<(), Box<dyn std::error::Error>> {
+        let table = ZobristHashTable::new(2048);
+        table.put(5, ZobristHashTableEntry::new(6, 7, 8, ChessMove::default()));
+
+        let mut table_clone = table.clone();
+        thread::spawn(move || {
+            table_clone.put(5, ZobristHashTableEntry::new(0, 2, 0, ChessMove::default()));
+        }).join();
+
+        dbg!(&table.get(5).depth);
+        assert!(table.get(5).depth == 2);
         Ok(())
     }
 }
