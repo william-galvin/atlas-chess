@@ -32,6 +32,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
+      - name: Clone ONNX Runtime
+        run: |
+          git clone --depth 1 --branch v1.20.1 https://github.com/microsoft/onnxruntime.git
+          cd onnxruntime
+          ./build.sh --config Release --build_shared_lib --parallel
+          sudo cp ./build/Linux/Release/libonnxruntime.so /usr/local/lib/
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -59,6 +65,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
+      - name: Clone ONNX Runtime
+        run: |
+          git clone --depth 1 --branch v1.20.1 https://github.com/microsoft/onnxruntime.git
+          cd onnxruntime
+          ./build.sh --config Release --build_shared_lib --parallel
+          sudo cp ./build/Linux/Release/libonnxruntime.so /usr/local/lib/
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
