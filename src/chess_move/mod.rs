@@ -30,6 +30,7 @@ impl ChessMove {
     /// For example, e2e4, e2e4, e1g1 (castling), e7e8q (promotion)
     /// Leaves the `SPECIAL` field blank, except for promotions
     pub fn from_str(s_move: &str) -> Result<Self, String> {
+        let s_move = s_move.trim();
         let promotion = match s_move.len() {
             5 => {
                 match s_move.chars().last().unwrap() {
@@ -37,7 +38,7 @@ impl ChessMove {
                     'b' | 'B' => 5,
                     'r' | 'R' => 6,
                     'q' | 'Q' => 7,
-                    _ => return Err("Unsupported promotion type".to_string())
+                    _ => return Err(format!("Unsupported promotion type for {}", s_move))
                 }
             },
             4 => 0,

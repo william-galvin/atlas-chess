@@ -1,6 +1,6 @@
-use std::{cell::{RefCell, UnsafeCell}, fmt::Debug, mem::size_of, ops::{Index, IndexMut}, rc::Rc, sync::{Arc, Mutex, RwLock}, u64};
+use std::{fmt::Debug, mem::size_of, ops::Index, sync::Arc, u64};
 
-use crate::{board::Board, chess_move::ChessMove, random::Rng};
+use crate::{chess_move::ChessMove, random::Rng};
 
 pub trait Uint: Sized {
     fn from_u64_truncate(value: u64) -> Self;
@@ -27,11 +27,16 @@ const CACHE_SIZE: usize = GIB / 4; // TODO: put in config, remove from ::new par
 const N_ENTRIES: usize = CACHE_SIZE / ENTRY_SIZE;
 
 
+/// Table of N_FEATURES random bitstrings to 
+/// incrementally update board hashes
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 struct ZobristLookupTable<U: Uint> {
     features: [U; N_FEATURES],
 }
 
+/// Element belonging to a Board instance, 
+/// with 64 bit hash (key), 16 bit hash (checksum), 
+/// and references to lookup tables
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct ZobristBoardComponent {
     pub z_key: u64,
@@ -40,19 +45,14 @@ pub struct ZobristBoardComponent {
     z16: Arc<ZobristLookupTable<u16>>,
 }
 
-/// Thread intentionally unsafe, heap allocated hash table.
-/// Zobrist hash tables always have many, many collisions -
-/// this implementation intentionally allows data races with 
-/// `unsafe` put and get methods. The caller should check the returned
-/// value's checksum.
-/// 
-/// Caller's should wrap with Arc to send between threads.
+/// Heap allocated hash table for use in engine cache
 pub struct ZobristHashTable {
     data: Box<[ZobristHashTableEntry; N_ENTRIES]>
 }
 
-unsafe impl Sync for ZobristHashTable {}
-
+/// Entry into ZobristHashTable where z_sum is the 16 bit checksum, 
+/// depth is the searched depth at the node, eval and chess_move are 
+/// previously returned from `go`
 #[derive(Default, Clone, Copy)]
 pub struct ZobristHashTableEntry {
     pub z_sum: u16,
@@ -152,10 +152,8 @@ impl ZobristHashTableEntry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests {    
     use crate::{board::Board, chess_move::ChessMove};
-    use std::thread;
 
     #[test]
     fn zobrist_push_pop_pawn_push() -> Result<(), Box<dyn std::error::Error>> {

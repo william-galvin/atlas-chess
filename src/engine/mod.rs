@@ -1,7 +1,6 @@
-use crate::board::WHITE;
-use crate::zobrist::ZobristHashTableEntry;
-use crate::{board::Board, zobrist::ZobristHashTable};
-use crate::move_generator::{self, MoveGenerator};
+use crate::board::{Board, WHITE};
+use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
+use crate::move_generator::MoveGenerator;
 use crate::chess_move::ChessMove;
 
 use ort::session::{
@@ -31,12 +30,14 @@ impl Engine {
         Ok(Self{ move_generator, transposition_table, nn, depth })
     }
 
+    /// Returns a tuple of (best_move, eval) for a given board
     pub fn go(&mut self, board: &Board) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
         let color = board.to_move() as i16 * 2 - 1;
         let mut board = board.copy()?;
-        return self.iddfs(&mut board, color);
+        self.iddfs(&mut board, color)
     }
 
+    /// See https://www.chessprogramming.org/Iterative_Deepening
     fn iddfs(&mut self, root: &mut Board, color: i16) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
         let depth = self.depth;
         for d in 3..depth {
@@ -53,6 +54,8 @@ impl Engine {
     }
 }
 
+/// Minimax tree search with alpha-beta pruning + cache + deep move ordering
+/// See https://en.wikipedia.org/wiki/Negamax
 fn negamax(
     root: &mut Board,
     depth: u8,
@@ -79,7 +82,7 @@ fn negamax(
     }
     
     let mut child_nodes = vec![];
-    let check = move_generator.check(&root);
+    let check = move_generator.check(root);
     if check {
         child_nodes = move_generator.moves(root);
         if child_nodes.is_empty() {
@@ -104,8 +107,8 @@ fn negamax(
         return Ok((Some(ChessMove::default()), 0));
     }
 
-    if depth == max_depth {
-        order_moves_nn(&root, &mut child_nodes, &nn)?;    
+    if depth == max_depth { // TODO - make config-able
+        order_moves_nn(root, &mut child_nodes, nn)?;    
     } 
 
     if let Some(pv) = principal_variation {
@@ -137,7 +140,7 @@ fn negamax(
     }
     
     transposition_table.put(z_key, ZobristHashTableEntry::new(z_sum, depth, value.1, value.0.unwrap_or_default()));
-    return Ok((value.0, value.1));
+    Ok((value.0, value.1))
 }
 
 /// Returns an Array3 in the shape that the NN expects
@@ -158,10 +161,10 @@ fn bitboard_onnx_order_vec(pieces: [u64; 12]) -> Array3<f32> {
 /// Reflects idx if black to play
 fn get_move_idx(chess_move: &ChessMove, side: u64) -> [usize; 2] {
     if side == WHITE {
-        return [0, (chess_move.from() * 64 + chess_move.to()) as usize];
+        [0, (chess_move.from() * 64 + chess_move.to()) as usize]
     } else {
         let reflected_move = chess_move.reflect();
-        return [0, (reflected_move.from() * 64 + reflected_move.to()) as usize];
+        [0, (reflected_move.from() * 64 + reflected_move.to()) as usize]
     }
 }
 
@@ -179,13 +182,16 @@ fn order_moves_nn(root: &Board, child_nodes: &mut Vec<ChessMove>, nn: &Session) 
     Ok(())
 }
 
+/// Returns a large positive number if board is good for white,
+/// large negative if good for black
 fn static_evaluation(board: &Board) -> i16 {
-    return count_pieces(board);
+    count_pieces(board)
 }
 
+/// Static material evaluation
 fn count_pieces(board: &Board) -> i16 {
     let mut sum = 0;
-    let idxs_weights = vec![(0, 100), (1, 300), (2, 300), (3, 500), (4, 900)];
+    let idxs_weights = vec![(0, 100), (1, 300), (2, 300), (3, 500), (4, 900)]; // TODO put in cofig
     for &(idx, weight) in &idxs_weights {
         sum += weight * board.pieces[idx].count_ones() as i16;
         sum -= weight * board.pieces[idx + 6].count_ones() as i16;
@@ -196,23 +202,16 @@ fn count_pieces(board: &Board) -> i16 {
 
 #[cfg(test)]
 mod tests {
-    use ndarray::iter::Indices;
-
-    use crate::board;
     use crate::zobrist;
-    use crate::zobrist::GIB;
-
     use super::*;
-    use std::cell::Cell;
+    
     use std::io::{self, BufRead};
-    use std::fs::{File, read_dir};
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::fs::File;
     use std::time::Instant;
 
     #[test]
     fn engine_test() -> Result<(), ()> {
-        let mut engine = Engine::new(
+        let engine = Engine::new(
             MoveGenerator::new(), 
             "/Users/williamgalvin/Documents/chess/atlas-chess-engine/runs/run-1/nn.onnx",
             4,
@@ -221,7 +220,7 @@ mod tests {
 
         let board = Board::new();
         let res = engine.nn.run(ort::inputs![bitboard_onnx_order_vec(board.pieces)].unwrap()).unwrap();
-        let scores = (&res[2].try_extract_tensor::<f32>().unwrap());
+        let scores = &res[2].try_extract_tensor::<f32>().unwrap();
 
         Ok(())
     }

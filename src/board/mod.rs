@@ -33,6 +33,12 @@ struct MoveRecord {
     moved: u16
 }
 
+impl Default for Board {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Board {
     /// Initializes a board in the
     /// default state
@@ -116,7 +122,7 @@ impl Board {
             pieces[idx] |= 1 << square;
             square += 1;
         }
-        return pieces;
+        pieces
     }
 
     /// Takes a FEN from standard notion, reverses the ranks
@@ -127,7 +133,7 @@ impl Board {
     }
 
     /// Represent the current position in the
-    /// cannonical FEN (without the move counts)
+    /// canonical FEN (without the move counts)
     pub fn to_fen(&self) -> String {
         let mut fen = String::new();
 
@@ -419,7 +425,7 @@ impl Board {
                 reflected[piece] |= tmp << shift2;
             }
         }
-        return reflected;
+        reflected
     }
 
     pub fn move_bit(value: u64, source_index: u16, destination_index: u16) -> u64 {
@@ -448,7 +454,7 @@ impl Board {
         }
 
         let enpass_other = other.next().unwrap();
-        return enpass_other == "-" || enpass_other == this.next().unwrap();
+        enpass_other == "-" || enpass_other == this.next().unwrap()
     }
 
     /// Returns WHITE or BLACK (ints)
@@ -556,16 +562,15 @@ impl Board {
         }
 
         for i in 0..=5 {
-            let tmp = self.pieces[i];
-            self.pieces[i] = self.pieces[i + 6];
-            self.pieces[i + 6] = tmp;
+            let i = i;
+            self.pieces.swap(i, i + 6);
         }
 
         for i in 1..=2 {
             let tmp = (self.info >> i) & 1;
             
             self.info &= !(1 << i);
-            self.info |= ((self.info >> i + 2) & 1) << i;
+            self.info |= ((self.info >> (i + 2)) & 1) << i;
             
             self.info &= !(1 << (i + 2));
             self.info |= tmp << (i + 2);
@@ -575,7 +580,7 @@ impl Board {
             let tmp = (self.info >> i) & 1;
             
             self.info &= !(1 << i);
-            self.info |= ((self.info >> i + 8) & 1) << i;
+            self.info |= ((self.info >> (i + 8)) & 1) << i;
             
             self.info &= !(1 << (i + 8));
             self.info |= tmp << (i + 8) ;
@@ -616,7 +621,7 @@ mod tests {
     #[test]
     fn test_from_fen_starting() {
         let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -";
-        let mut b = Board::new();
+        let b = Board::new();
         let f = Board::from_fen(fen).unwrap();
         assert_eq!(b, f);
     }
@@ -624,7 +629,7 @@ mod tests {
     #[test]
     fn test_to_fen_starting() {
         let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -";
-        let mut b = Board::new();
+        let b = Board::new();
         let f = b.to_fen();
         assert_eq!(f, fen);
     }
@@ -663,72 +668,72 @@ mod tests {
         board.push_move(cm);
         assert!(board.fen_eq("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq -"));
 
-        board.push_move((ChessMove::from_str("e7e5").unwrap()));
+        board.push_move(ChessMove::from_str("e7e5").unwrap());
         assert!(board.fen_eq("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6"));
 
-        board.push_move((ChessMove::from_str("f2f4").unwrap()));
+        board.push_move(ChessMove::from_str("f2f4").unwrap());
         assert_eq!("rnbqkbnr/pppp1ppp/8/4p3/4PP2/8/PPPP2PP/RNBQKBNR b KQkq f3", board.to_fen());
 
-        board.push_move((ChessMove::from_str("d7d6").unwrap()));
+        board.push_move(ChessMove::from_str("d7d6").unwrap());
         assert_eq!("rnbqkbnr/ppp2ppp/3p4/4p3/4PP2/8/PPPP2PP/RNBQKBNR w KQkq -", board.to_fen());
 
-        board.push_move((ChessMove::from_str("g1f3").unwrap()));
+        board.push_move(ChessMove::from_str("g1f3").unwrap());
         assert_eq!("rnbqkbnr/ppp2ppp/3p4/4p3/4PP2/5N2/PPPP2PP/RNBQKB1R b KQkq -", board.to_fen());
     }
 
     #[test]
     fn test_move_castle_king_white() {
         let mut board = Board::from_fen("r2qkbnr/ppp2ppp/2np4/4p3/2B1PPb1/5N2/PPPP2PP/RNBQK2R w KQkq - 4 5").unwrap();
-        board.push_move((ChessMove::from_str("e1g1").unwrap()));
+        board.push_move(ChessMove::from_str("e1g1").unwrap());
         assert_eq!("r2qkbnr/ppp2ppp/2np4/4p3/2B1PPb1/5N2/PPPP2PP/RNBQ1RK1 b kq -", board.to_fen());
     }
 
     #[test]
     fn test_castle_queen_white() {
         let mut board = Board::from_fen("rnbqkbnr/pp2p2p/2p3p1/3p2p1/2PP4/2N5/PP1QPPPP/R3KBNR w KQkq - ").unwrap();
-        board.push_move((ChessMove::from_str("e1c1").unwrap()));
+        board.push_move(ChessMove::from_str("e1c1").unwrap());
         assert_eq!("rnbqkbnr/pp2p2p/2p3p1/3p2p1/2PP4/2N5/PP1QPPPP/2KR1BNR b kq -", board.to_fen());
     }
 
     #[test]
     fn test_castle_king_black() {
         let mut board = Board::from_fen("rnbqk2r/pp5p/2p1pnp1/3p2p1/1bPP4/1PN1PN2/P2Q1PPP/2KR1B1R b kq -").unwrap();
-        board.push_move((ChessMove::from_str("e8g8").unwrap()));
+        board.push_move(ChessMove::from_str("e8g8").unwrap());
         assert_eq!("rnbq1rk1/pp5p/2p1pnp1/3p2p1/1bPP4/1PN1PN2/P2Q1PPP/2KR1B1R w - -", board.to_fen());
     }
 
     #[test]
     fn test_castle_queen_black() {
         let mut board = Board::from_fen("r3kbnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R b KQkq - ").unwrap();
-        board.push_move((ChessMove::from_str("e8c8").unwrap()));
+        board.push_move(ChessMove::from_str("e8c8").unwrap());
         assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R w KQ -", board.to_fen());
     }
 
     #[test]
     fn test_capture_black() {
         let mut board = Board::from_fen("2kr1bnr/ppp2ppp/2np4/4p1q1/2B1PPb1/3P1N1P/PPP3P1/RNBQK2R w KQ -").unwrap();
-        board.push_move((ChessMove::from_str("f4g5").unwrap()));
+        board.push_move(ChessMove::from_str("f4g5").unwrap());
         assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P1b1/3P1N1P/PPP3P1/RNBQK2R b KQ -", board.to_fen());
     }
 
     #[test]
     fn test_capture_white() {
         let mut board = Board::from_fen("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P1b1/3P1N1P/PPP3P1/RNBQK2R b KQ -").unwrap();
-        board.push_move((ChessMove::from_str("g4h3").unwrap()));
+        board.push_move(ChessMove::from_str("g4h3").unwrap());
         assert_eq!("2kr1bnr/ppp2ppp/2np4/4p1P1/2B1P3/3P1N1b/PPP3P1/RNBQK2R w KQ -", board.to_fen());
     }
 
     #[test]
     fn test_enpassant_black() {
         let mut board = Board::from_fen("rnbqkbnr/pppp2pp/5p2/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6").unwrap();
-        board.push_move((ChessMove::from_str("d5e6").unwrap()));
+        board.push_move(ChessMove::from_str("d5e6").unwrap());
         assert_eq!("rnbqkbnr/pppp2pp/4Pp2/8/8/8/PPP1PPPP/RNBQKBNR b KQkq -", board.to_fen());
     }
 
     #[test]
     fn test_enpassant_white() {
         let mut board = Board::from_fen("rnbqkbnr/pp1p2pp/4Pp2/8/1Pp5/4P3/P1P2PPP/RNBQKBNR b KQkq b3").unwrap();
-        board.push_move((ChessMove::from_str("c4b3").unwrap()));
+        board.push_move(ChessMove::from_str("c4b3").unwrap());
         assert_eq!("rnbqkbnr/pp1p2pp/4Pp2/8/8/1p2P3/P1P2PPP/RNBQKBNR w KQkq -", board.to_fen());
     }
 
@@ -737,7 +742,7 @@ mod tests {
         for p in ['n', 'b', 'r', 'q'] {
             let mut board = Board::from_fen("rnbq1bnr/pp1P1kpp/5p2/8/8/1p2P3/P1P2PPP/RNBQKBNR w KQ - ").unwrap();
             let move_ = format!("d7c8{}", p);
-            board.push_move((ChessMove::from_str(&move_).unwrap()));
+            board.push_move(ChessMove::from_str(&move_).unwrap());
             assert_eq!(format!("rn{}q1bnr/pp3kpp/5p2/8/8/1p2P3/P1P2PPP/RNBQKBNR b KQ -", p.to_uppercase()), board.to_fen());
         }
     }
