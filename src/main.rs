@@ -25,15 +25,13 @@ impl GameManager {
             board: Board::new(),
             engine: Engine::new(
                 MoveGenerator::new(), 
-                7,
                 constants::TT_CACHE_SIZE
             ).unwrap(),
         }
     }
 }
 
-fn main() -> io::Result<()> {
-
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut log = File::create("log.out")?;
     let mut game_manager = GameManager::new();
 
@@ -65,7 +63,7 @@ fn main() -> io::Result<()> {
                     },
                     "fen" => {
                         moves_offset = 9;
-                        Board::from_fen(&msg[2..=7].join(" ")).unwrap()
+                        Board::from_fen(&msg[2..=7].join(" "))?
                     },
                     _ => panic!("Failed to parse position")
                 };
@@ -79,7 +77,7 @@ fn main() -> io::Result<()> {
                 }
             },
             "go" => {
-                let best_move = game_manager.engine.go(&game_manager.board).unwrap();
+                let best_move = game_manager.engine.go(&game_manager.board, 3)?;
                 println!("bestmove {:#}", best_move.0.unwrap());
             }
             _ => {

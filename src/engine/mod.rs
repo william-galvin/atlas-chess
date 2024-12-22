@@ -16,11 +16,10 @@ pub struct Engine {
     move_generator: MoveGenerator,
     transposition_table: std::sync::Arc<ZobristHashTable>,
     nn: Session,
-    depth: u8
 }
 
 impl Engine {
-    pub fn new(move_generator: MoveGenerator, depth: u8, cache_size: usize) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(move_generator: MoveGenerator, cache_size: usize) -> Result<Self, Box<dyn std::error::Error>> {
         let weights_path = get_weights();
         let nn = Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
@@ -29,21 +28,20 @@ impl Engine {
 
         let transposition_table = ZobristHashTable::new(cache_size);
 
-        Ok(Self{ move_generator, transposition_table, nn, depth })
+        Ok(Self{ move_generator, transposition_table, nn })
     }
 
     /// Returns a tuple of (best_move, eval) for a given board
-    pub fn go(&mut self, board: &Board) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
+    pub fn go(&mut self, board: &Board, depth: u8) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
         let color = board.to_move() as i16 * 2 - 1;
         let mut board = board.copy()?;
-        self.iddfs(&mut board, color)
+        self.iddfs(&mut board, color, depth)
     }
 
     /// See https://www.chessprogramming.org/Iterative_Deepening
-    fn iddfs(&mut self, root: &mut Board, color: i16) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
-        let depth = self.depth;
+    fn iddfs(&mut self, root: &mut Board, color: i16, depth: u8) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
         for d in 3..depth {
-            let _ = negamax(
+            let _result = negamax(
                 root, d, d, i16::MIN + 1, i16::MAX - 1, color,
                 self.transposition_table.clone(), &self.move_generator, &self.nn
             );
@@ -242,7 +240,6 @@ mod tests {
     fn engine_test() -> Result<(), ()> {
         let engine = Engine::new(
             MoveGenerator::new(), 
-            4,
             constants::GIB / 2048
         ).unwrap();
 
@@ -264,7 +261,6 @@ mod tests {
     fn can_find_mate_in_2() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            3,
             constants::GIB / 1024
         )?;
 
@@ -284,11 +280,11 @@ mod tests {
             let moves = line.split(",").nth(2).unwrap();
             let mut board = Board::from_fen(fen)?;
             board.push_move(ChessMove::from_str(moves.split(" ").next().unwrap())?);
-            let (_best_move, score) = engine.go(&board)?;
+            let (_best_move, score) = engine.go(&board, 3)?;
             assert!(score <= -i16::MAX + 3 || score >= i16::MAX - 3);
             eprint!(".");
         }
-        println!("Time to check puzzles: {:?}", start.elapsed()); // Time to beat: 4.3 seconds (running in release, move ordering only on first ply + second, not generating moves unless needed)
+        println!("Time to check mate in 2: {:?}", start.elapsed()); // Time to beat: 4.3 seconds (running in release, move ordering only on first ply + second, not generating moves unless needed)
         Ok(())
     }
 
@@ -296,7 +292,6 @@ mod tests {
     fn can_find_mate_in_3() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            5,
             constants::GIB / 8
         )?;
 
@@ -316,25 +311,24 @@ mod tests {
             let moves = line.split(",").nth(2).unwrap();
             let mut board = Board::from_fen(fen)?;
             board.push_move(ChessMove::from_str(moves.split(" ").next().unwrap())?);
-            let (_best_move, score) = engine.go(&board)?;
+            let (_best_move, score) = engine.go(&board, 5)?;
             let best_move = _best_move.unwrap();
             assert!(score <= -i16::MAX + 5 || score >= i16::MAX - 5, "didn't find mate in 3, score is {score} and move is {best_move}");
             eprint!(".");
         }
-        println!("Time to check puzzles: {:?}", start.elapsed()); // Time to beat: 4.3 seconds (running in release, move ordering only on first ply + second, not generating moves unless needed)
+        println!("Time to check mate in 3: {:?}", start.elapsed()); // Time to beat: 4.3 seconds (running in release, move ordering only on first ply + second, not generating moves unless needed)
         Ok(())
     }
 
     #[test]
     fn can_find_mate_in_four_simple() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
-            MoveGenerator::new(), 
-            7,
+            MoveGenerator::new(),
             constants::GIB / 2048
         )?;
 
         let board = Board::from_fen("2r5/1k4q1/2pRp3/ppQ1Pp1p/8/2P1P3/PP3PrP/3R1K2 b - - 1 30")?;
-        let (_best_move, score) = engine.go(&board)?;
+        let (_best_move, score) = engine.go(&board, 7)?;
         let best_move = _best_move.unwrap();
         assert!(score <= -i16::MAX + 7 || score >= i16::MAX - 7, "didn't find mate in 4, score is {score} and move is {best_move}");
         Ok(())
@@ -345,16 +339,15 @@ mod tests {
     fn can_find_mate_in_five_simple() -> Result<(), Box<dyn std::error::Error>> {
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            9,
             constants::GIB / 2048
         )?;
 
         let start = Instant::now();
         let board = Board::from_fen("4r1k1/pp3p1p/q1p2np1/4P1Q1/8/1P1P3P/P3R1P1/7K w - - 0 29")?;
-        let (_best_move, score) = engine.go(&board)?;
+        let (_best_move, score) = engine.go(&board, 9)?;
         let best_move = _best_move.unwrap();
         assert!(score <= -i16::MAX + 7 || score >= i16::MAX - 7, "didn't find mate in 4, score is {score} and move is {best_move}");
-        println!("Time to check puzzles: {:?}", start.elapsed()); 
+        println!("Time to check mate in 5 simple: {:?}", start.elapsed()); 
         Ok(())
     }
 
@@ -364,8 +357,7 @@ mod tests {
         let start = Instant::now();
 
         let mut engine = Engine::new(
-            MoveGenerator::new(), 
-            7,
+            MoveGenerator::new(),
             constants::GIB
         )?;
 
@@ -385,7 +377,7 @@ mod tests {
             board.push_move(ChessMove::from_str(moves.split(" ").next().unwrap())?);
             eprint!("Attempting {} ...", &board.to_fen());
             let start2 = Instant::now();
-            let (_best_move, score) = engine.go(&board)?;
+            let (_best_move, score) = engine.go(&board, 7)?;
             let best_move = _best_move.unwrap();
             assert!(score <= -i16::MAX + 7 || score >= i16::MAX - 7, "didn't find mate in 4 for fen={fen}, instead saw best move as {best_move} with score {score}");
             eprintln!(" done in {:?}", start2.elapsed());
