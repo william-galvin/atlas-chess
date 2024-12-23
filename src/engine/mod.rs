@@ -1,9 +1,11 @@
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::thread;
 
 use crate::board::{Board, WHITE};
 use crate::constants::{DEEP_MOVE_ORDERING_DEPTH, NN_WEIGHTS, N_ONNX_THREADS};
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
-use crate::move_generator::MoveGenerator;
+use crate::move_generator::{self, MoveGenerator};
 use crate::chess_move::ChessMove;
 
 use ort::session::{
@@ -15,16 +17,18 @@ use ndarray::Array3;
 pub struct Engine {
     move_generator: MoveGenerator,
     transposition_table: std::sync::Arc<ZobristHashTable>,
-    nn: Session,
+    nn: Arc<Session>,
 }
 
 impl Engine {
     pub fn new(move_generator: MoveGenerator, cache_size: usize) -> Result<Self, Box<dyn std::error::Error>> {
         let weights_path = get_weights();
-        let nn = Session::builder()?
+        let nn = Arc::from(
+            Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_intra_threads(N_ONNX_THREADS)?
-                .commit_from_file(weights_path.to_str().unwrap())?;
+                .commit_from_file(weights_path.to_str().unwrap())?
+            );
 
         let transposition_table = ZobristHashTable::new(cache_size);
 
@@ -39,12 +43,22 @@ impl Engine {
     }
 
     /// See https://www.chessprogramming.org/Iterative_Deepening
-    fn iddfs(&mut self, root: &mut Board, color: i16, depth: u8) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
+    fn iddfs(&self, root: &mut Board, color: i16, depth: u8) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
         for d in 3..depth {
-            let _result = negamax(
-                root, d, d, i16::MIN + 1, i16::MAX - 1, color,
-                self.transposition_table.clone(), &self.move_generator, &self.nn
-            );
+            let mut root = root.clone();
+            let move_generator = self.move_generator.clone();
+            let tt = self.transposition_table.clone();
+            let nn = self.nn.clone();
+            thread::spawn(move || {
+                let _result = negamax(
+                    &mut root, d, d, i16::MIN + 1, i16::MAX - 1, color,
+                    tt, &move_generator, &nn
+                );
+            });
+            // let _ = negamax(
+            //     root, d, d, i16::MIN + 1, i16::MAX - 1, color,
+            //     self.transposition_table.clone(), &self.move_generator, &self.nn
+            // );
         }
 
         negamax(
@@ -380,7 +394,7 @@ mod tests {
             let (_best_move, score) = engine.go(&board, 7)?;
             let best_move = _best_move.unwrap();
             assert!(score <= -i16::MAX + 7 || score >= i16::MAX - 7, "didn't find mate in 4 for fen={fen}, instead saw best move as {best_move} with score {score}");
-            eprintln!(" done in {:?}", start2.elapsed());
+            eprintln!(" done in {:?}", start2.elapsed()); // time to beat: 19.9 at 
         }
         println!("Time to check puzzles: {:?}", start.elapsed()); 
         Ok(())
