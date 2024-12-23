@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::thread;
 
 use crate::board::{Board, WHITE};
-use crate::constants::{DEEP_MOVE_ORDERING_DEPTH, NN_WEIGHTS, N_ONNX_THREADS};
+use crate::constants::{DEEP_MOVE_ORDERING_DEPTH, LAZY_SMP_SHUFFLE_N, NN_WEIGHTS, N_ONNX_THREADS};
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
 use crate::move_generator::{self, MoveGenerator};
 use crate::chess_move::ChessMove;
@@ -13,6 +13,9 @@ use ort::session::{
     Session,
 };
 use ndarray::Array3;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+
 
 pub struct Engine {
     move_generator: MoveGenerator,
@@ -45,6 +48,7 @@ impl Engine {
     /// See https://www.chessprogramming.org/Iterative_Deepening
     fn iddfs(&self, root: &mut Board, color: i16, depth: u8) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
         for d in 3..depth {
+            
             let mut root = root.clone();
             let move_generator = self.move_generator.clone();
             let tt = self.transposition_table.clone();
@@ -55,10 +59,19 @@ impl Engine {
                     tt, &move_generator, &nn
                 );
             });
-            // let _ = negamax(
-            //     root, d, d, i16::MIN + 1, i16::MAX - 1, color,
-            //     self.transposition_table.clone(), &self.move_generator, &self.nn
-            // );
+        }
+
+        for _ in 0..3 {
+            let mut root = root.clone();
+            let move_generator = self.move_generator.clone();
+            let tt = self.transposition_table.clone();
+            let nn = self.nn.clone();
+            thread::spawn(move || {
+                let _result = negamax(
+                    &mut root, depth, depth, i16::MIN + 1, i16::MAX - 1, color,
+                    tt, &move_generator, &nn
+                );
+            });
         }
 
         negamax(
@@ -131,6 +144,11 @@ fn negamax(
         if child_nodes.contains(&pv) {
             child_nodes.insert(0, pv);
         }
+    }
+
+    if child_nodes.len() > LAZY_SMP_SHUFFLE_N {
+        let (first, rest) = child_nodes.split_at_mut(LAZY_SMP_SHUFFLE_N);
+        rest.shuffle(&mut thread_rng())
     }
 
     let mut value = (None, i16::MIN);    
@@ -394,7 +412,7 @@ mod tests {
             let (_best_move, score) = engine.go(&board, 7)?;
             let best_move = _best_move.unwrap();
             assert!(score <= -i16::MAX + 7 || score >= i16::MAX - 7, "didn't find mate in 4 for fen={fen}, instead saw best move as {best_move} with score {score}");
-            eprintln!(" done in {:?}", start2.elapsed()); // time to beat: 19.9 at 
+            eprintln!(" done in {:?}", start2.elapsed()); // time to beat: 13.18 at 
         }
         println!("Time to check puzzles: {:?}", start.elapsed()); 
         Ok(())
