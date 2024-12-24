@@ -9,6 +9,8 @@ mod constants;
 use std::io::{self, BufRead, Write};
 use std::fs::File;
 
+use constants::{PONDER_SEARCH_DEPTH, SEARCH_TIME};
+
 use crate::board::Board;
 use crate::engine::Engine;
 use crate::move_generator::MoveGenerator;
@@ -77,8 +79,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             },
             "go" => {
-                let best_move = game_manager.engine.go(&game_manager.board, 3)?;
+                game_manager.engine.ponder_stop();
+                let best_move = game_manager.engine.go(&game_manager.board, 100, SEARCH_TIME)?;
                 println!("bestmove {:#}", best_move.0.unwrap());
+                game_manager.board.push_move(best_move.0.unwrap());
+                game_manager.engine.ponder_start(&game_manager.board, PONDER_SEARCH_DEPTH);
+                game_manager.board.pop_move();
             }
             _ => {
                 println!("Unknown command entered: {}", msg.join(" "));

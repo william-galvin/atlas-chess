@@ -8,4 +8,5 @@ RUST_BACKTRACE = "full"
 debug = true
 
 [alias]
-test-dev = "test --no-default-features --release -- --nocapture"
+test-dev = "test --no-default-features --release -- --nocapture --test-threads=1"
+br = "build --release --no-default-features"
