@@ -5,9 +5,15 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::board::{Board, WHITE};
-use crate::constants::{DEEP_MOVE_ORDERING_DEPTH, LAZY_SMP_PARALLEL_ROOT, LAZY_SMP_SHUFFLE_N, NN_WEIGHTS, N_ONNX_THREADS};
+use crate::constants::{
+    DEEP_MOVE_ORDERING_DEPTH,
+    LAZY_SMP_PARALLEL_ROOT,
+    LAZY_SMP_SHUFFLE_N,
+    NN_WEIGHTS,
+    N_ONNX_THREADS
+};
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
-use crate::move_generator::{self, MoveGenerator};
+use crate::move_generator::MoveGenerator;
 use crate::chess_move::ChessMove;
 
 use ort::session::{
@@ -82,7 +88,7 @@ impl Engine {
 
                 let color = board.to_move() as i16 * 2 - 1;
                 let result = lazy_smp_iddfs(
-                    &mut board, color, depth, transposition_table.clone(), 
+                    &board, color, depth, transposition_table.clone(), 
                     &move_generator, nn.clone(), thread_deadline.clone()
                 );
 
@@ -121,9 +127,8 @@ impl Engine {
         
         let deadline = Arc::from(RwLock::new(Instant::now() + search_time));
         let color = board.to_move() as i16 * 2 - 1;
-        let mut board = board.copy()?;
         lazy_smp_iddfs(
-            &mut board, color, depth, self.transposition_table.clone(), 
+            &board, color, depth, self.transposition_table.clone(), 
             &self.move_generator, self.nn.clone(), deadline
         )
     }
@@ -202,7 +207,7 @@ fn lazy_smp_iddfs(
     }
 
     results.sort_by_key(|r| r.0);
-    return Ok(results.pop().unwrap().1);
+    Ok(results.pop().unwrap().1)
 }
 
 
@@ -329,7 +334,7 @@ fn get_move_idx(chess_move: &ChessMove, side: u64) -> [usize; 2] {
 
 /// Given and a set of its legal moves, sorts the moves by what the NN thinks
 /// is most likely to be played
-fn order_moves_nn(root: &Board, child_nodes: &mut Vec<ChessMove>, nn: &Session) -> Result<(), Box<dyn std::error::Error>>{
+fn order_moves_nn(root: &Board, child_nodes: &mut [ChessMove], nn: &Session) -> Result<(), Box<dyn std::error::Error>>{
     let pieces = if root.to_move() == WHITE { root.pieces } else { root.reflect_pieces() };
     let outputs = nn.run(ort::inputs![bitboard_onnx_order_vec(pieces)]?)?;
     let move_scores = outputs[2].try_extract_tensor::<f32>()?;
@@ -342,7 +347,7 @@ fn order_moves_nn(root: &Board, child_nodes: &mut Vec<ChessMove>, nn: &Session) 
 }
 
 /// Shuffles the last LAZY_SMP_SHUFFLE_N elements
-fn shuffle_tail(child_nodes: &mut Vec<ChessMove>) {
+fn shuffle_tail(child_nodes: &mut [ChessMove]) {
     if child_nodes.len() > LAZY_SMP_SHUFFLE_N {
         let (_first, rest) = child_nodes.split_at_mut(LAZY_SMP_SHUFFLE_N);
         rest.shuffle(&mut thread_rng())

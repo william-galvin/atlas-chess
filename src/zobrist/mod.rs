@@ -147,7 +147,7 @@ impl ZobristHashTable {
 
     pub fn get(&self, key: u64) -> ZobristHashTableEntry {
         unsafe {
-            return (*self.data.get())[key as usize % N_ENTRIES];
+            (*self.data.get())[key as usize % N_ENTRIES]
         }
     }
 }
@@ -209,8 +209,8 @@ mod tests {
         let table = ZobristHashTable::new(2048);
         table.put(5, ZobristHashTableEntry::new(6, 7, 8, ChessMove::default()));
 
-        let mut table_clone = table.clone();
-        thread::spawn(move || {
+        let table_clone = table.clone();
+        let _ = thread::spawn(move || {
             table_clone.put(5, ZobristHashTableEntry::new(0, 2, 0, ChessMove::default()));
         }).join();
 
