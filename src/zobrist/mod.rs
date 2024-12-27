@@ -3,8 +3,10 @@ use std::{cell::UnsafeCell, fmt::Debug, mem::size_of, ops::Index, sync::Arc};
 use crate::{
     chess_move::ChessMove,
     constants::TT_CACHE_SIZE,
-    random::Rng
 };
+
+use rand::{Rng, RngCore, SeedableRng};
+use rand::rngs::StdRng;
 
 pub trait Uint: Sized {
     fn from_u64_truncate(value: u64) -> Self;
@@ -65,8 +67,8 @@ pub struct ZobristHashTableEntry {
 
 impl<U: Uint> ZobristLookupTable<U> {
     fn new(seed: u64) -> Self {
-        let mut rng = Rng::new_deterministic(seed, size_of::<U>() as u64);
-        let features = std::array::from_fn(|_| U::from_u64_truncate(rng.random()));
+        let mut rng = StdRng::seed_from_u64(seed);
+        let features = std::array::from_fn(|_| U::from_u64_truncate(rng.next_u64()));
         Self { features }
     }
 }

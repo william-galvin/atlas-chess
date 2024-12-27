@@ -157,7 +157,10 @@ impl fmt::Debug for ChessMove {
 
 #[cfg(test)]
 mod tests {
-    use super::{*, super::random::Rng};
+    use std::thread;
+
+    use super::*;
+    use rand::Rng;
 
     #[test]
     fn test_constructor() {
@@ -173,32 +176,32 @@ mod tests {
 
     #[test]
     fn test_from() {
-        let mut rng = Rng::new();
+        let mut rng = rand::thread_rng();
         for i in 0..=63 {
             let cm = ChessMove::new(i,
-                                    rng.bounded_random(0, 64) as u16,
-                                    rng.bounded_random(0, 16) as u16);
+                                    rng.gen_range(0..64) as u16,
+                                    rng.gen_range(0..16) as u16);
             assert_eq!(cm.from(), i);
         }
     }
 
     #[test]
     fn test_to() {
-        let mut rng = Rng::new();
+        let mut rng = rand::thread_rng();
         for i in 0..=63 {
-            let cm = ChessMove::new(rng.bounded_random(0, 64) as u16,
+            let cm = ChessMove::new(rng.gen_range(0..64) as u16,
                                     i,
-                                    rng.bounded_random(0, 16) as u16);
+                                    rng.gen_range(0..16) as u16);
             assert_eq!(cm.to(), i);
         }
     }
 
     #[test]
     fn test_special() {
-        let mut rng = Rng::new();
+        let mut rng = rand::thread_rng();
         for i in 0..=15 {
-            let cm = ChessMove::new(rng.bounded_random(0, 64) as u16,
-                                    rng.bounded_random(0, 64) as u16,
+            let cm = ChessMove::new(rng.gen_range(0..64) as u16,
+                                    rng.gen_range(0..64) as u16,
                                     i);
             assert_eq!(cm.special(), i);
         }
