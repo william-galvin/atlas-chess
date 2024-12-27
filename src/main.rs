@@ -5,6 +5,7 @@ mod move_generator;
 mod engine;
 mod zobrist;
 mod constants;
+mod lru_cache;
 
 use std::io::{self, BufRead, Write};
 use std::fs::File;

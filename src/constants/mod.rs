@@ -29,3 +29,6 @@ pub const SEARCH_TIME: std::time::Duration = std::time::Duration::from_secs(3);
 // The maximun search depth for ponder searches. Regular searches are 
 // limited by time, not depth.
 pub const PONDER_SEARCH_DEPTH: u8 = 7;
+
+// Number of LRU cache entries for ponder cache
+pub const PONDER_CACHE_SIZE: usize = 1000;

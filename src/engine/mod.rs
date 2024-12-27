@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
@@ -10,8 +9,10 @@ use crate::constants::{
     LAZY_SMP_PARALLEL_ROOT,
     LAZY_SMP_SHUFFLE_N,
     NN_WEIGHTS,
-    N_ONNX_THREADS
+    N_ONNX_THREADS,
+    PONDER_CACHE_SIZE
 };
+use crate::lru_cache::LRUCache;
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
 use crate::move_generator::MoveGenerator;
 use crate::chess_move::ChessMove;
@@ -33,7 +34,7 @@ pub struct Engine {
 }
 
 struct Ponder {
-    cache: Arc<Mutex<HashMap<String, (ChessMove, i16)>>>,
+    cache: Arc<Mutex<LRUCache<String, (ChessMove, i16)>>>,
     deadline: Arc<RwLock<Instant>>
 }
 
@@ -49,7 +50,7 @@ impl Engine {
 
         let transposition_table = ZobristHashTable::new(cache_size);
         let ponder = Ponder {
-            cache: Arc::from(Mutex::new(HashMap::new())), 
+            cache: Arc::from(Mutex::new(LRUCache::new(PONDER_CACHE_SIZE))), 
             deadline: Arc::from(RwLock::new(Instant::now()))
         };
 
@@ -96,7 +97,7 @@ impl Engine {
 
                 if let Ok(best_move) = result {
                     let mut cache = thread_cache.lock().unwrap();
-                    cache.insert(child_fen, (best_move.0.unwrap(), best_move.1));
+                    cache.put(child_fen, (best_move.0.unwrap(), best_move.1));
                     i += 1;
                 } else {
                     eprintln!("ponder search: {}/{}", i, l);
