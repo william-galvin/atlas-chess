@@ -107,13 +107,13 @@ impl ZobristBoardComponent {
         Self { z64, z16, z_key, z_sum }
     }
 
-    // #[inline]
+    #[inline]
     pub fn xor(&mut self, piece: usize, square: u16) {
         self.z_key ^= self.z64[piece * 64 + square as usize];
         self.z_sum ^= self.z16[piece * 64 + square as usize];
     }
 
-    // #[inline]
+    #[inline]
     pub fn xor_info(&mut self, info_idx: u16) {
         self.z_key ^= self.z64[64 * 12 + info_idx as usize];
         self.z_sum ^= self.z16[64 * 12 + info_idx as usize];
