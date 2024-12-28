@@ -9,7 +9,7 @@ mod lru_cache;
 use std::io::{self, BufRead, Write};
 use std::fs::File;
 
-use constants::{PONDER_SEARCH_DEPTH, SEARCH_TIME};
+use constants::UCIConfig;
 
 use crate::board::Board;
 use crate::engine::Engine;
@@ -19,16 +19,20 @@ use crate::chess_move::ChessMove;
 struct GameManager {
     board: Board,
     engine: Engine,
+    uci: UCIConfig,
 }
 
 impl GameManager {
     fn new() -> Self {
+        let uci = UCIConfig::default();
+
         Self {
             board: Board::new(),
             engine: Engine::new(
                 MoveGenerator::new(), 
-                constants::TT_CACHE_SIZE
+                uci.clone()
             ).unwrap(),
+            uci: uci
         }
     }
 }
@@ -48,11 +52,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match msg[0] {
             "uci" => {
-                println!("id name Atlas100");
+                println!("id name Atlas");
                 println!("id author William Galvin");
+                println!();
+                println!("{}", UCIConfig::help());
                 println!("uciok");
             },
-            "isready" => {
+            "option" => {
+                println!("{}", UCIConfig::help());
+            },
+            "setoption" => {
+                let name = msg[2];
+                let value = msg[4];
+                if game_manager.uci.set(name, value)? {
+                    game_manager.engine = Engine::new(
+                        MoveGenerator::new(), 
+                        game_manager.uci.clone()
+                    ).unwrap()
+                }
+            }
+            "isready" => { 
                 println!("readyok");
             },
             "ucinewgame" => {},
@@ -80,10 +99,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             "go" => {
                 game_manager.engine.ponder_stop();
-                let best_move = game_manager.engine.go(&game_manager.board, 100, SEARCH_TIME)?;
+                let best_move = game_manager.engine.go(&game_manager.board, u8::MAX, game_manager.uci.search_time)?;
                 println!("bestmove {:#}", best_move.0.unwrap());
                 game_manager.board.push_move(best_move.0.unwrap());
-                game_manager.engine.ponder_start(&game_manager.board, PONDER_SEARCH_DEPTH);
+                game_manager.engine.ponder_start(&game_manager.board, game_manager.uci.ponder_search_depth);
                 game_manager.board.pop_move();
             }
             _ => {

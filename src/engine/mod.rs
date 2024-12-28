@@ -4,14 +4,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::board::{Board, WHITE};
-use crate::constants::{
-    DEEP_MOVE_ORDERING_DEPTH,
-    LAZY_SMP_PARALLEL_ROOT,
-    LAZY_SMP_SHUFFLE_N,
-    NN_WEIGHTS,
-    N_ONNX_THREADS,
-    PONDER_CACHE_SIZE
-};
+
+use crate::constants::UCIConfig;
 use crate::lru_cache::LRUCache;
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
 use crate::move_generator::MoveGenerator;
@@ -30,7 +24,8 @@ pub struct Engine {
     move_generator: MoveGenerator,
     transposition_table: Arc<ZobristHashTable>,
     nn: Arc<Session>,
-    ponder: Ponder
+    ponder: Ponder,
+    uci: UCIConfig,
 }
 
 struct Ponder {
@@ -39,22 +34,22 @@ struct Ponder {
 }
 
 impl Engine {
-    pub fn new(move_generator: MoveGenerator, cache_size: usize) -> Result<Self, Box<dyn std::error::Error>> {
-        let weights_path = get_weights();
+    pub fn new(move_generator: MoveGenerator, uci: UCIConfig, ) -> Result<Self, Box<dyn std::error::Error>> {
+        let weights_path = get_weights(&uci.nn_weights);
         let nn = Arc::from(
             Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
-                .with_intra_threads(N_ONNX_THREADS)?
+                .with_intra_threads(uci.n_onnx_threads)?
                 .commit_from_file(weights_path.to_str().unwrap())?
             );
 
-        let transposition_table = ZobristHashTable::new(cache_size);
+        let transposition_table = ZobristHashTable::new(uci.tt_cache_size);
         let ponder = Ponder {
-            cache: Arc::from(Mutex::new(LRUCache::new(PONDER_CACHE_SIZE))), 
+            cache: Arc::from(Mutex::new(LRUCache::new(uci.ponder_cache_size))), 
             deadline: Arc::from(RwLock::new(Instant::now()))
         };
 
-        Ok(Self{ move_generator, transposition_table, nn, ponder })
+        Ok(Self{ move_generator, transposition_table, nn, ponder, uci })
     }
 
     /// Starts pondering a given board.
@@ -77,6 +72,7 @@ impl Engine {
         let transposition_table = self.transposition_table.clone();
         let move_generator = self.move_generator.clone();
         let nn = self.nn.clone();
+        let uci = self.uci.clone();
         thread::spawn(move || {
             let mut moves = move_generator.moves(&mut board);
             order_moves_nn(&board, &mut moves, &nn).unwrap();
@@ -90,7 +86,7 @@ impl Engine {
                 let color = board.to_move() as i16 * 2 - 1;
                 let result = lazy_smp_iddfs(
                     &board, color, depth, transposition_table.clone(), 
-                    &move_generator, nn.clone(), thread_deadline.clone()
+                    &move_generator, nn.clone(), thread_deadline.clone(), uci.clone()
                 );
 
                 board.pop_move();
@@ -130,7 +126,7 @@ impl Engine {
         let color = board.to_move() as i16 * 2 - 1;
         lazy_smp_iddfs(
             &board, color, depth, self.transposition_table.clone(), 
-            &self.move_generator, self.nn.clone(), deadline
+            &self.move_generator, self.nn.clone(), deadline, self.uci.clone()
         )
     }
 }
@@ -144,7 +140,8 @@ fn async_negamax(
     move_generator: &MoveGenerator,
     nn: Arc<Session>,
     results: Arc<Mutex<Vec<(u8, (Option<ChessMove>, i16))>>>,
-    deadline: Arc<RwLock<Instant>>
+    deadline: Arc<RwLock<Instant>>, 
+    uci: UCIConfig,
 ) -> JoinHandle<()> {
     let mut root = root.clone();
     let move_generator = move_generator.clone();
@@ -152,7 +149,7 @@ fn async_negamax(
     thread::spawn(move || {
         let result = negamax(
             &mut root, depth, depth, i16::MIN + 1, i16::MAX - 1, color,
-            tt, &move_generator, &nn, deadline
+            tt, &move_generator, &nn, deadline, uci
         );
         if let Ok(res) = result {
             let mut results = results.lock().unwrap();
@@ -170,7 +167,8 @@ fn lazy_smp_iddfs(
     transposition_table: Arc<ZobristHashTable>,
     move_generator: &MoveGenerator,
     nn: Arc<Session>,
-    deadline: Arc<RwLock<Instant>>
+    deadline: Arc<RwLock<Instant>>, 
+    uci: UCIConfig,
 ) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
 
     let root = &mut root.clone();
@@ -181,20 +179,20 @@ fn lazy_smp_iddfs(
     for d in 3..depth {
         threads.push(
             async_negamax(root, color, d, transposition_table.clone(),
-            &move_generator.clone(), nn.clone(), results.clone(), deadline.clone()
+            &move_generator.clone(), nn.clone(), results.clone(), deadline.clone(), uci.clone()
         ));
     }
 
-    for _ in 0..LAZY_SMP_PARALLEL_ROOT {
+    for _ in 0..uci.lazy_smp_parallel_root {
         threads.push(
             async_negamax(root, color, depth, transposition_table.clone(),
-            &move_generator.clone(), nn.clone(), results.clone(), deadline.clone()
+            &move_generator.clone(), nn.clone(), results.clone(), deadline.clone(), uci.clone()
         ));
     }
 
     let result = negamax(
         root, depth, depth, i16::MIN + 1, i16::MAX - 1, color,
-        transposition_table.clone(), move_generator, &nn, deadline.clone()
+        transposition_table.clone(), move_generator, &nn, deadline.clone(), uci.clone()
     );
 
     threads.into_iter().for_each(|t| { let _  = t.join(); } );
@@ -224,7 +222,8 @@ fn negamax(
     transposition_table: Arc<ZobristHashTable>,
     move_generator: &MoveGenerator,
     nn: &Session,
-    deadline: Arc<RwLock<Instant>>
+    deadline: Arc<RwLock<Instant>>, 
+    uci: UCIConfig,
 ) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
     
     if Instant::now() > *deadline.read().unwrap() {
@@ -270,7 +269,7 @@ fn negamax(
         return Ok((Some(ChessMove::default()), 0));
     }
 
-    if depth >= max_depth - DEEP_MOVE_ORDERING_DEPTH {
+    if depth >= max_depth - uci.deep_move_ordering_depth {
         order_moves_nn(root, &mut child_nodes, nn)?;    
     } 
 
@@ -282,14 +281,14 @@ fn negamax(
         }
     }
 
-    shuffle_tail(&mut child_nodes);
+    shuffle_tail(&mut child_nodes, uci.lazy_smp_shuffle_n);
     
     let mut value = (None, i16::MIN);    
     for &child in &child_nodes {
         root.push_move(child);
         let (_child_move, child_value) = negamax(
             root, depth - 1, max_depth, -beta, -alpha, -color,
-            transposition_table.clone(), move_generator, nn, deadline.clone()
+            transposition_table.clone(), move_generator, nn, deadline.clone(), uci.clone()
         )?;
         root.pop_move();
 
@@ -348,9 +347,9 @@ fn order_moves_nn(root: &Board, child_nodes: &mut [ChessMove], nn: &Session) -> 
 }
 
 /// Shuffles the last LAZY_SMP_SHUFFLE_N elements
-fn shuffle_tail(child_nodes: &mut [ChessMove]) {
-    if child_nodes.len() > LAZY_SMP_SHUFFLE_N {
-        let (_first, rest) = child_nodes.split_at_mut(LAZY_SMP_SHUFFLE_N);
+fn shuffle_tail(child_nodes: &mut [ChessMove], shuffle_n: usize) {
+    if child_nodes.len() > shuffle_n {
+        let (_first, rest) = child_nodes.split_at_mut(shuffle_n);
         rest.shuffle(&mut thread_rng())
     }
 }
@@ -372,14 +371,14 @@ fn count_pieces(board: &Board) -> i16 {
     sum
 }
 
-fn get_weights() -> PathBuf {
+fn get_weights(path: &str) -> PathBuf {
     let exe_dir = std::env::current_exe()
         .expect("Failed to get the current executable path")
         .parent()
         .expect("Executable path has no parent")
         .to_path_buf();
 
-    let mut weights = exe_dir.join(NN_WEIGHTS);
+    let mut weights = exe_dir.join(path);
     if !weights.exists() {
         let exe_dir = std::env::current_exe()
         .expect("Failed to get the current executable path")
@@ -389,7 +388,7 @@ fn get_weights() -> PathBuf {
         .expect("Executable path has no parent")
         .to_path_buf();
 
-        weights = exe_dir.join(NN_WEIGHTS);
+        weights = exe_dir.join(path);
     }
 
     if !weights.exists() {
@@ -411,9 +410,12 @@ mod tests {
 
     #[test]
     fn engine_test() -> Result<(), ()> {
+        let mut uci = UCIConfig::default();
+        uci.tt_cache_size = constants::GIB / 2048;
+
         let engine = Engine::new(
             MoveGenerator::new(), 
-            constants::GIB / 2048
+            uci
         ).unwrap();
 
         let board = Board::new();
@@ -432,9 +434,12 @@ mod tests {
 
     #[test]
     fn can_find_mate_in_2() -> Result<(), Box<dyn std::error::Error>> {
+        let mut uci = UCIConfig::default();
+        uci.tt_cache_size = constants::GIB / 1024;
+
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            constants::GIB / 1024
+            uci.clone()
         )?;
 
         let start = Instant::now();
@@ -453,7 +458,7 @@ mod tests {
             let moves = line.split(",").nth(2).unwrap();
             let mut board = Board::from_fen(fen)?;
             board.push_move(ChessMove::from_str(moves.split(" ").next().unwrap())?);
-            let (_best_move, score) = engine.go(&board, 3, constants::SEARCH_TIME)?;
+            let (_best_move, score) = engine.go(&board, 3, uci.search_time)?;
             assert!(score <= -i16::MAX + 3 || score >= i16::MAX - 3);
             eprint!(".");
         }
@@ -463,9 +468,12 @@ mod tests {
 
     #[test]
     fn can_find_mate_in_3() -> Result<(), Box<dyn std::error::Error>> {
+        let mut uci = UCIConfig::default();
+        uci.tt_cache_size = constants::GIB / 4;
+
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            constants::GIB / 4
+            uci
         )?;
 
         let start = Instant::now();
@@ -495,9 +503,12 @@ mod tests {
 
     #[test]
     fn can_find_mate_in_four_simple() -> Result<(), Box<dyn std::error::Error>> {
+        let mut uci = UCIConfig::default();
+        uci.tt_cache_size = constants::GIB / 1024;
+
         let mut engine = Engine::new(
             MoveGenerator::new(),
-            constants::GIB / 1024
+            uci
         )?;
 
         let board = Board::from_fen("2r5/1k4q1/2pRp3/ppQ1Pp1p/8/2P1P3/PP3PrP/3R1K2 b - - 1 30")?;
@@ -510,9 +521,12 @@ mod tests {
     #[ignore = "long running"]
     #[test]
     fn can_find_mate_in_five_simple() -> Result<(), Box<dyn std::error::Error>> {
+        let mut uci = UCIConfig::default();
+        uci.tt_cache_size = constants::GIB / 2048;
+
         let mut engine = Engine::new(
             MoveGenerator::new(), 
-            constants::GIB / 2048
+            uci
         )?;
 
         let start = Instant::now();
@@ -529,9 +543,12 @@ mod tests {
     fn can_find_mate_in_4() -> Result<(), Box<dyn std::error::Error>> {
         let start = Instant::now();
 
+        let mut uci = UCIConfig::default();
+        uci.tt_cache_size = constants::GIB;
+
         let mut engine = Engine::new(
             MoveGenerator::new(),
-            constants::GIB
+            uci
         )?;
 
         let file = File::open("tests/mate_in_4.csv")?;

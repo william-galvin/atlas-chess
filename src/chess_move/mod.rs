@@ -157,8 +157,6 @@ impl fmt::Debug for ChessMove {
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
-
     use super::*;
     use rand::Rng;
 

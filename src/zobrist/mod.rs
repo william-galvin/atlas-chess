@@ -1,12 +1,19 @@
-use std::{cell::UnsafeCell, fmt::Debug, mem::size_of, ops::Index, sync::Arc};
-
-use crate::{
-    chess_move::ChessMove,
-    constants::TT_CACHE_SIZE,
+use std::{
+    cell::UnsafeCell,
+    fmt::Debug,
+    mem::size_of,
+    ops::Index,
+    sync::Arc,
 };
 
-use rand::{Rng, RngCore, SeedableRng};
-use rand::rngs::StdRng;
+use crate::chess_move::ChessMove;
+
+
+use rand::{
+    RngCore,
+    SeedableRng, 
+    rngs::StdRng,
+};
 
 pub trait Uint: Sized {
     fn from_u64_truncate(value: u64) -> Self;
@@ -27,9 +34,6 @@ macro_rules! impl_uint {
 impl_uint!(u8, u16, u32, u64, usize, u128);
 
 const N_FEATURES: usize = 64 * 12 + 22;
-const ENTRY_SIZE: usize = size_of::<ZobristHashTableEntry>();
-const N_ENTRIES: usize = TT_CACHE_SIZE / ENTRY_SIZE;
-
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 struct ZobristLookupTable<U: Uint> {
@@ -52,7 +56,8 @@ pub struct ZobristBoardComponent {
 /// 
 /// Caller's should wrap with Arc to send between threads.
 pub struct ZobristHashTable {
-    data: UnsafeCell<[ZobristHashTableEntry; N_ENTRIES]>
+    size: usize,
+    data: UnsafeCell<Box<[ZobristHashTableEntry]>>
 }
 
 unsafe impl Sync for ZobristHashTable {}
@@ -132,24 +137,25 @@ impl ZobristBoardComponent {
 }
 
 impl ZobristHashTable {
-    pub fn new(_cache_size: usize) -> Arc<Self> {
-        let data: UnsafeCell<[ZobristHashTableEntry; N_ENTRIES]> = UnsafeCell::new(
-            std::array::from_fn(|_| ZobristHashTableEntry::default())
-        );
+    pub fn new(cache_size: usize) -> Arc<Self> {
+        let entry_size = size_of::<ZobristHashTableEntry>();
+        let n_entries = cache_size / entry_size;
+        let data = 
+            UnsafeCell::new(vec![ZobristHashTableEntry::default(); n_entries].into_boxed_slice());
 
-        Arc::new(Self { data })
+        Arc::new(Self { size: n_entries, data: data })
     }
 
     pub fn put(&self, key: u64, value: ZobristHashTableEntry) {
         unsafe {
-            let entry = &mut (*self.data.get())[key as usize % N_ENTRIES];
+            let entry = &mut (*self.data.get())[key as usize % self.size];
             *entry = value;
         }
     }
 
     pub fn get(&self, key: u64) -> ZobristHashTableEntry {
         unsafe {
-            (*self.data.get())[key as usize % N_ENTRIES]
+            (*self.data.get())[key as usize % self.size]
         }
     }
 }
