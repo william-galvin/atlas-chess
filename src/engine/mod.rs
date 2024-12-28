@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::{self, JoinHandle};
@@ -6,6 +9,7 @@ use std::time::{Duration, Instant};
 use crate::board::{Board, WHITE};
 
 use crate::constants::UCIConfig;
+use crate::liches::tablebase_lookup;
 use crate::lru_cache::LRUCache;
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
 use crate::move_generator::MoveGenerator;
@@ -17,8 +21,7 @@ use ort::session::{
 };
 use ndarray::Array3;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
-
+use rand::{thread_rng, Rng};
 
 pub struct Engine {
     move_generator: MoveGenerator,
@@ -26,6 +29,7 @@ pub struct Engine {
     nn: Arc<Session>,
     ponder: Ponder,
     uci: UCIConfig,
+    book: HashMap<String, Vec<ChessMove>>,
 }
 
 struct Ponder {
@@ -35,7 +39,7 @@ struct Ponder {
 
 impl Engine {
     pub fn new(move_generator: MoveGenerator, uci: UCIConfig, ) -> Result<Self, Box<dyn std::error::Error>> {
-        let weights_path = get_weights(&uci.nn_weights);
+        let weights_path = get_file("nn.quant.onnx");
         let nn = Arc::from(
             Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
@@ -49,7 +53,9 @@ impl Engine {
             deadline: Arc::from(RwLock::new(Instant::now()))
         };
 
-        Ok(Self{ move_generator, transposition_table, nn, ponder, uci })
+        let book = get_book("opening_book.csv")?;
+
+        Ok(Self{ move_generator, transposition_table, nn, ponder, uci, book })
     }
 
     /// Starts pondering a given board.
@@ -117,8 +123,20 @@ impl Engine {
         search_time: Duration
     ) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
 
+        if self.uci.own_book {
+            if let Some(book_move) = self.book.get(&board.to_fen()) {
+                let idx = rand::thread_rng().gen_range(0..book_move.len());
+                return Ok((Some(book_move[idx]), 0));
+            }
+        }
+
+        if self.uci.tablebase && board.count_pieces() <= 7 {
+            if let Some(best_move) = tablebase_lookup(&board) {
+                return Ok((Some(best_move), i16::MAX));
+            }
+        }
+
         if let Some(best_move) = self.ponder.cache.lock().unwrap().get(&board.to_fen()) {
-            eprintln!("ponder hit");
             return Ok((Some(best_move.0), best_move.1));
         }
         
@@ -371,15 +389,15 @@ fn count_pieces(board: &Board) -> i16 {
     sum
 }
 
-fn get_weights(path: &str) -> PathBuf {
+fn get_file(path: &str) -> PathBuf {
     let exe_dir = std::env::current_exe()
         .expect("Failed to get the current executable path")
         .parent()
         .expect("Executable path has no parent")
         .to_path_buf();
 
-    let mut weights = exe_dir.join(path);
-    if !weights.exists() {
+    let mut file = exe_dir.join(path);
+    if !file.exists() {
         let exe_dir = std::env::current_exe()
         .expect("Failed to get the current executable path")
         .parent()
@@ -388,16 +406,37 @@ fn get_weights(path: &str) -> PathBuf {
         .expect("Executable path has no parent")
         .to_path_buf();
 
-        weights = exe_dir.join(path);
+        file = exe_dir.join(path);
     }
 
-    if !weights.exists() {
-        panic!("weights don't exist");
+    if !file.exists() {
+        panic!("file don't exist");
     }
 
-    weights
+    file
 }
 
+fn get_book(path: &str) -> io::Result<HashMap<String, Vec<ChessMove>>> {
+    let file = File::open(get_file(path))?;
+    let reader = io::BufReader::new(file);
+
+    let mut book = HashMap::new();
+
+    for line in reader.lines() {
+        let mut _line = line?;
+        let mut line = _line.split(",");
+        let key = line.next().unwrap();
+        let moves: Vec<ChessMove> = line.next()
+            .unwrap()
+            .split(" ")
+            .into_iter()
+            .map(|m| ChessMove::from_str(m).unwrap())
+            .collect();
+        book.insert(key.to_string(), moves);
+    }
+
+    Ok(book)
+}
 
 #[cfg(test)]
 mod tests {

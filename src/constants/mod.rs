@@ -5,9 +5,6 @@ pub struct UCIConfig {
     // Cache size of transposition table in bytes
     pub tt_cache_size: usize,
 
-    // Relative path to NN weights
-    pub nn_weights: String, 
-
     // Threads for onnx runtime
     pub n_onnx_threads: usize, 
 
@@ -34,13 +31,18 @@ pub struct UCIConfig {
 
     // Number of LRU cache entries for ponder cache
     pub ponder_cache_size: usize,
+
+    // If true, use book
+    pub own_book: bool,
+
+    // If true, use lichess syzygy tablebase
+    pub tablebase: bool,
 }
 
 impl UCIConfig {
     pub fn default() -> Self {
         Self { 
             tt_cache_size: GIB, 
-            nn_weights: String::from("nn.quant.onnx"), 
             n_onnx_threads: 4, 
             deep_move_ordering_depth: 0, 
             lazy_smp_shuffle_n: 20, 
@@ -48,13 +50,14 @@ impl UCIConfig {
             search_time: std::time::Duration::from_secs(3), 
             ponder_search_depth: 7, 
             ponder_cache_size: 1000, 
+            own_book: true,
+            tablebase: true,
         }
     }
 
     pub fn help() -> String {
         let options = vec![
             "option name tt_cache_size type spin default 1073741824 min 1 max 1073741824",
-            "option name nn_weights type string default \"nn.quant.onnx\"",
             "option name n_onnx_threads type spin default 4 min 1 max 1024",
             "option name deep_move_ordering_depth type spin default 0 min 0 max 255",
             "option name lazy_smp_shuffle_n type spin default 20 min 0 max 1024",
@@ -62,6 +65,8 @@ impl UCIConfig {
             "option name search_time type spin default 3 min 0 max 1000000",
             "option name ponder_search_depth type spin default 7 min 0 max 255",
             "option name ponder_cache_size type spin default 1000 min 1 max 1073741824",
+            "option name OwnBook type button default true",
+            "option name tablebase type button default true",
         ];
 
         options.join("\n")
@@ -74,10 +79,6 @@ impl UCIConfig {
                 self.tt_cache_size = value.parse()?;
                 Ok(true)
             }, 
-            "nn_weights" => {
-                self.nn_weights = value.to_string();
-                Ok(true)
-            },
             "n_onnx_threads" => {
                 self.n_onnx_threads = value.parse()?;
                 Ok(true)
@@ -105,7 +106,15 @@ impl UCIConfig {
             "ponder_cache_size" => {
                 self.ponder_cache_size = value.parse()?;
                 Ok(true)
-            }
+            },
+            "OwnBook" => {
+                self.own_book = value.parse()?;
+                Ok(false)
+            },
+            "tablebase" => {
+                self.tablebase = value.parse()?;
+                Ok(false)
+            },
             _ => {
                 return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "invalid uci option")))
             }
