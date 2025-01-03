@@ -137,17 +137,11 @@ impl MoveGenerator {
             legal_mask[i] = check_masks[i] & pin_masks[i];
         }
 
-        let mut k_moves = self.king_moves(board, self_offset, self_mask, opp_mask, to_move);
-        let mut n_moves = knight_moves(board.pieces, self_offset, self_mask, legal_mask);
-        let mut p_moves = pawn_moves(board, self_offset, self_mask, opp_mask, to_move, legal_mask);
-        let mut r_moves = self.magic_moves(board.pieces, self_offset, self_mask, opp_mask, ROOK, legal_mask);
-        let mut b_moves = self.magic_moves(board.pieces, self_offset, self_mask, opp_mask, BISHOP, legal_mask);
-
-        moves.append(&mut k_moves);
-        moves.append(&mut n_moves);
-        moves.append(&mut p_moves);
-        moves.append(&mut r_moves);
-        moves.append(&mut b_moves);
+        self.king_moves(board, self_offset, self_mask, opp_mask, to_move, legal_mask, &mut moves);
+        knight_moves(board.pieces, self_offset, self_mask, legal_mask, &mut moves);
+        pawn_moves(board, self_offset, self_mask, opp_mask, to_move, legal_mask, &mut moves);
+        self.magic_moves(board.pieces, self_offset, self_mask, opp_mask, ROOK, legal_mask, &mut moves);
+        self.magic_moves(board.pieces, self_offset, self_mask, opp_mask, BISHOP, legal_mask, &mut moves);
 
         moves
     }
@@ -162,17 +156,11 @@ impl MoveGenerator {
         pieces[KING + 6 - self_offset] = 0;
 
         let mut moves = Vec::with_capacity(100);
-        let mut k_moves = king_seen(pieces, self_offset);
-        let mut n_moves = knight_moves(pieces, self_offset, 0u64, [u64::MAX; 64]);
-        let mut p_moves = pawn_seen(pieces, self_offset, to_move);
-        let mut r_moves = self.magic_moves(pieces, self_offset, 0u64, occupied, ROOK, [u64::MAX; 64]);
-        let mut b_moves = self.magic_moves(pieces, self_offset, 0u64, occupied, BISHOP, [u64::MAX; 64]);
-
-        moves.append(&mut k_moves);
-        moves.append(&mut n_moves);
-        moves.append(&mut p_moves);
-        moves.append(&mut r_moves);
-        moves.append(&mut b_moves);
+        king_seen(pieces, self_offset, &mut moves);
+        knight_moves(pieces, self_offset, 0u64, [u64::MAX; 64], &mut moves);
+        pawn_seen(pieces, self_offset, to_move, &mut moves);
+        self.magic_moves(pieces, self_offset, 0u64, occupied, ROOK, [u64::MAX; 64], &mut moves);
+        self.magic_moves(pieces, self_offset, 0u64, occupied, BISHOP, [u64::MAX; 64], &mut moves);
 
         let mut bitmask = 0u64;
         for m in moves {
@@ -189,16 +177,15 @@ impl MoveGenerator {
         self_mask: u64,
         opp_mask: u64,
         piece_type: usize,
-        legal_mask: [u64; 64]
-    ) -> Vec<ChessMove> {
+        legal_mask: [u64; 64],
+        results: &mut Vec<ChessMove>
+    ) {
         let (magics, shifts, idx_offset) = if piece_type == ROOK {
             (ROOK_MAGICS, ROOK_SHIFTS, 0)
         } else {
             (BISHOP_MAGICS, BISHOP_SHIFTS, 1)
         };
 
-
-        let mut moves = Vec::with_capacity(25);
         let piece_mask = pieces[offset + piece_type] | pieces[offset + QUEEN];
         for square in get_bits(piece_mask) {
             let blockers = (self_mask | opp_mask) & if piece_type == ROOK {
@@ -210,10 +197,9 @@ impl MoveGenerator {
             let key = (blockers as usize).wrapping_mul(magics[square]) >> shifts[square];
             let _moves = self.sliding_moves[square * 2 + idx_offset][key] & !(self_mask);
             for to in get_bits(_moves & legal_mask[square]) {
-                moves.push(ChessMove::new(square as u16, to as u16, 0))
+                results.push(ChessMove::new(square as u16, to as u16, 0))
             }
         }
-        moves
     }
 
     /// Returns true if the given square is being attacked by
@@ -258,42 +244,45 @@ impl MoveGenerator {
     }
 
     /// Finds pseudo-legal king moves
-    fn king_moves(&self, board: &Board, self_offset: usize, self_mask: u64, opp_mask: u64, to_move: u64) -> Vec<ChessMove> {
+    fn king_moves(
+        &self,
+        board: &Board,
+        self_offset: usize,
+        self_mask: u64,
+        opp_mask: u64,
+        to_move: u64,
+        legal_mask: [u64; 64],
+        results: &mut Vec<ChessMove>)
+    {
         let king_square = board.pieces[self_offset + KING].trailing_zeros();
         let opp_seen = self.seen(board, 6 - self_offset, self_mask | opp_mask, to_move ^ 1);
-        
-        let mut moves: Vec<ChessMove> = get_bits(
-            get_k_moves(
-                board.pieces[self_offset + KING],
-                self_mask,
-                [-8, 8, 1, -1, 9, 7, -9, -7],
-                1
-            )[0].1 
-            & !opp_seen
-        )
-        .into_iter()
-        .map(|to| ChessMove::new(king_square as u16, to as u16, 0))
-        .collect();
+
+        get_k_moves(
+            board.pieces[self_offset + KING],
+            self_mask,
+            [-8, 8, 1, -1, 9, 7, -9, -7],
+            1, 
+            [!opp_seen; 64],
+            results
+        );
         
         if to_move == WHITE {
             if board.pieces[self_offset + KING] >> 4 & 1 == 1 && opp_seen & 1 << 4 == 0 {
                 if board.white_king_castle() && self.can_castle(board, vec![5, 6], self_mask, opp_mask, None, opp_seen) {
-                    moves.push(ChessMove::new(4, 6, 3));
+                    results.push(ChessMove::new(4, 6, 3));
                 }
                 if board.white_queen_castle() && self.can_castle(board, vec![2, 3], self_mask, opp_mask, Some(1), opp_seen) {
-                    moves.push(ChessMove::new(4, 2, 3));
+                    results.push(ChessMove::new(4, 2, 3));
                 }
             }
         } else if board.pieces[self_offset + KING] >> 60 & 1 == 1 && opp_seen & 1 << 60 == 0 {
             if board.black_king_castle() && self.can_castle(board, vec![61, 62], self_mask, opp_mask, None, opp_seen) {
-                moves.push(ChessMove::new(60, 62, 3));
+                results.push(ChessMove::new(60, 62, 3));
             }
             if board.black_queen_castle() && self.can_castle(board, vec![58, 59], self_mask, opp_mask, Some(57), opp_seen) {
-                moves.push(ChessMove::new(60, 58, 3));
+                results.push(ChessMove::new(60, 58, 3));
             }
         }
-
-        moves
     }
 
     /// Checks if king of side to move is in check
@@ -422,47 +411,32 @@ fn pin_and_check_masks(board: &Board, self_offset: usize) -> ([u64; 64], [u64; 6
 
 
 /// Finds pseudo-legal knight moves
-fn knight_moves(pieces: [u64; 12], self_offset: usize, self_mask: u64, legal_mask: [u64; 64]) -> Vec<ChessMove> {
-    let moves = get_k_moves(
+fn knight_moves(pieces: [u64; 12], self_offset: usize, self_mask: u64, legal_mask: [u64; 64], results: &mut Vec<ChessMove>) {
+    get_k_moves(
         pieces[self_offset + KNIGHT],
         self_mask,
         [-17, -15, -6, 10, 17, 15, 6, -10],
-        2
+        2, 
+        legal_mask, 
+        results
     );
-
-    let mut result = Vec::with_capacity(16);
-    for (from, to_bitboard) in moves {
-        get_bits(to_bitboard & legal_mask[from as usize])
-            .into_iter()
-            .map(|to| ChessMove::new(from, to as u16, 0))
-            .for_each(|m| result.push(m));
-    }
-
-    result
 }
 
 /// psuedo-moves of squares seen by king
-fn king_seen(pieces: [u64; 12], self_offset: usize) -> Vec<ChessMove> {
-    let king_square = pieces[self_offset + KING].trailing_zeros() as u16;
-    get_bits(
-        get_k_moves(
-            pieces[self_offset + KING],
-            0u64,
-            [-8, 8, 1, -1, 9, 7, -9, -7],
-            1
-        )[0].1
-    )
-    .into_iter()
-    .map(|to| ChessMove::new(king_square, to as u16, 0))
-    .collect()
+fn king_seen(pieces: [u64; 12], self_offset: usize, results: &mut Vec<ChessMove>) {
+    get_k_moves(
+        pieces[self_offset + KING], 
+        0u64, [-8, 8, 1, -1, 9, 7, -9, -7],
+        1, 
+        [u64::MAX; 64], 
+        results
+    );
 }
 
 /// Helper for generating king/knight moves, since the procedure
 /// is roughly the same for both
-fn get_k_moves(bitboard: u64, self_mask: u64, directions: [i16; 8], threshold: u16) -> Vec<(u16, u64)> {
-    let mut moves = Vec::with_capacity(8);
+fn get_k_moves(bitboard: u64, self_mask: u64, directions: [i16; 8], threshold: u16, legal_mask: [u64; 64], results: &mut Vec<ChessMove>) {
     for i in get_bits(bitboard) {
-        let mut to_bitboard = 0u64;
         for dir in directions {
             let to = match validate_move(i as u16, dir, threshold) {
                 Some(t) => t,
@@ -471,11 +445,11 @@ fn get_k_moves(bitboard: u64, self_mask: u64, directions: [i16; 8], threshold: u
             if self_mask >> to & 1 == 1 {
                 continue;
             }
-            to_bitboard |= 1 << to;
+            if legal_mask[i] >> to & 1 == 1 {
+                results.push(ChessMove::new(i as u16, to, 0));
+            }
         }
-        moves.push((i as u16, to_bitboard));
     }
-    moves
 }
 
 /// Helper function to check if king is in check by a sliding piece, parameterized
@@ -520,9 +494,9 @@ fn pawn_moves(
     self_mask: u64,
     opp_mask: u64,
     to_move: u64,
-    legal_mask: [u64; 64]
-) -> Vec<ChessMove> {
-    let mut moves = Vec::new();
+    legal_mask: [u64; 64],
+    results: &mut Vec<ChessMove>
+) {
 
     let (start_rank, end_rank, direction, enpass_offset, enpass_rank) = if to_move == WHITE {
         (1, 6, 1, 5, 4)
@@ -541,15 +515,15 @@ fn pawn_moves(
                 if opp_mask >> to & 1 == 1 {
                     if ChessMove::rank(i) == end_rank {
                         for promotion in 4..=7 {
-                            moves.push(ChessMove::new(i, to, promotion));
+                            results.push(ChessMove::new(i, to, promotion));
                         }
                     } else {
-                        moves.push(ChessMove::new(i, to, 0));
+                        results.push(ChessMove::new(i, to, 0));
                     }
                 }
                 if ChessMove::rank(i) == enpass_rank && board.info >> (ChessMove::file(to) + enpass_offset) & 1 == 1 {
                     if legal_mask[(i as i16 + 8 * direction) as usize] == u64::MAX { // TODO: include opp pawns as (self)blockers
-                        moves.push(ChessMove::new(i, to, 1));
+                        results.push(ChessMove::new(i, to, 1));
                     }
                 }
             }
@@ -563,12 +537,12 @@ fn pawn_moves(
             if ChessMove::rank(i) == end_rank {
                 if legal_mask[i as usize] >> to & 1 == 1 {
                     for promotion in 4..=7 {
-                        moves.push(ChessMove::new(i, to, promotion));
+                        results.push(ChessMove::new(i, to, promotion));
                     }
                 }
             } else {
                 if legal_mask[i as usize] >> to & 1 == 1 { 
-                    moves.push(ChessMove::new(i, to, 0));
+                    results.push(ChessMove::new(i, to, 0));
                 }
                 if ChessMove::rank(i) == start_rank {
                     let to_jump = match validate_move(i, 16 * direction, 0) {
@@ -577,20 +551,17 @@ fn pawn_moves(
                     };
                     if opp_mask >> to_jump & 1 == self_mask >> to_jump & 1 {
                         if legal_mask[i as usize] >> to_jump & 1 == 1 { 
-                            moves.push(ChessMove::new(i, to_jump, 2));
+                            results.push(ChessMove::new(i, to_jump, 2));
                         }
                     }
                 }
             }
         }
     }
-    moves
 }
 
 /// Returns pseudo-legals of squares seen by pawns (the two diagonals, no enpassant)
-fn pawn_seen(pieces: [u64; 12], offset: usize, to_move: u64) -> Vec<ChessMove> {
-    let mut moves = Vec::with_capacity(16);
-
+fn pawn_seen(pieces: [u64; 12], offset: usize, to_move: u64, results: &mut Vec<ChessMove>) {
     let direction = if to_move == WHITE { 1 } else { -1 };
     for i_size in get_bits(pieces[offset + PAWN]) {
         let i = i_size as u16;
@@ -598,13 +569,11 @@ fn pawn_seen(pieces: [u64; 12], offset: usize, to_move: u64) -> Vec<ChessMove> {
             match validate_move(i, dir * direction, 1) {
                 None => continue,
                 Some(t) => {
-                    moves.push(ChessMove::new(i, t, 0));
+                    results.push(ChessMove::new(i, t, 0));
                 }
             };
         }
     }
-
-    moves
 }
 
 /// Validates that a move + jump is legal
@@ -1011,7 +980,7 @@ mod tests {
         let mg = MoveGenerator::new();
 
         let start = Instant::now();
-        let expected = [46, 2079, 89890, 3894594, 164075551]; // Time to beat: 11 seconds
+        let expected = [46, 2079, 89890, 3894594, 164075551]; // Time to beat: 2.1 seconds
         for i in 1..=expected.len() as i32 {
             let mut board = Board::from_fen("r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10 ").unwrap();
             assert_eq!(perft(i, &mut board, &mg), expected[i as usize - 1]);
