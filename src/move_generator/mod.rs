@@ -203,20 +203,28 @@ impl MoveGenerator {
         }
 
         let rook_bboard = board.pieces[ROOK + offset] | board.pieces[QUEEN + offset];
-        let bishop_bboard = board.pieces[BISHOP + offset] | board.pieces[QUEEN + offset];
-        let k_bboard = board.pieces[KING + offset];
-
         let r_blockers = get_rook_cross(square) & blockers;
-        let b_blockers = get_bishop_cross(square) & blockers;
-        
         let r_key = (r_blockers as usize).wrapping_mul(ROOK_MAGICS[square]) >> ROOK_SHIFTS[square];
-        let b_key = (b_blockers as usize).wrapping_mul(BISHOP_MAGICS[square]) >> BISHOP_SHIFTS[square];
-
         let r_moves = self.sliding_moves[square * 2][r_key];
-        let b_moves = self.sliding_moves[square * 2 + 1][b_key];
-        let k_moves = get_king_circle(square);
+        if r_moves & rook_bboard != 0 {
+            return true;
+        }
 
-        r_moves & rook_bboard != 0 || b_moves & bishop_bboard != 0 || k_moves & k_bboard != 0
+        let bishop_bboard = board.pieces[BISHOP + offset] | board.pieces[QUEEN + offset];
+        let b_blockers = get_bishop_cross(square) & blockers;
+        let b_key = (b_blockers as usize).wrapping_mul(BISHOP_MAGICS[square]) >> BISHOP_SHIFTS[square];
+        let b_moves = self.sliding_moves[square * 2 + 1][b_key];
+        if  b_moves & bishop_bboard != 0 {
+            return true;
+        }
+        
+        let k_bboard = board.pieces[KING + offset];
+        let k_moves = get_king_circle(square);
+        if k_moves & k_bboard != 0 {
+            return true;
+        }
+
+        false
     }
 
     /// Finds legal king moves

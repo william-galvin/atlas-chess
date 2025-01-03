@@ -269,7 +269,7 @@ fn negamax(
     }
 
     if depth == 0 {
-        let eval = static_evaluation(root) * color;
+        let eval = qsearch(root, alpha, beta, color, move_generator, uci.qsearch_depth);
         transposition_table.put(z_key, ZobristHashTableEntry::new(z_sum, depth, eval, ChessMove::default()));
         return Ok((Some(ChessMove::default()), eval));
     } 
@@ -323,6 +323,64 @@ fn negamax(
     
     transposition_table.put(z_key, ZobristHashTableEntry::new(z_sum, depth, value.1, value.0.unwrap_or_default()));
     Ok((value.0, value.1))
+}
+
+fn qsearch(
+    root: &mut Board,
+    mut alpha: i16,
+    beta: i16,
+    color: i16, 
+    move_generator: &MoveGenerator, 
+    depth: u8,
+) -> i16 {
+    let mut best_value = static_evaluation(root) * color;
+
+    if depth == 0 {
+        return best_value;
+    }
+    
+    // delta pruning
+    let delta = 1000; // TODO - delta should be queen value, set in a config somewhere
+    if best_value + delta < alpha {
+        return best_value;
+    }
+
+    if best_value >= beta {
+        return best_value;
+    }
+    if alpha < best_value {
+        alpha = best_value;
+    }
+
+    let moves = move_generator.moves(root);
+    if moves.len() == 0 {
+        return if move_generator.check(root) { -i16::MAX + 16 } else { 0 };
+    }
+
+    let occupied = root.occupied();
+    for chess_move in moves {
+        let capture = occupied >> chess_move.to() & 1 == 1;
+        if !capture {
+            continue;
+        }
+
+        root.push_move(chess_move);
+        let score = -qsearch(root, -beta, -alpha, -color, move_generator, depth - 1);
+        root.pop_move();
+
+        if score > best_value {
+            best_value = score;
+        }
+        if best_value >= beta {
+            return best_value;
+        }
+        if alpha < best_value {
+            alpha = best_value;
+        }
+
+    }
+
+    return best_value;
 }
 
 /// Returns an Array3 in the shape that the NN expects
@@ -605,7 +663,7 @@ mod tests {
             board.push_move(ChessMove::from_str(moves.split(" ").next().unwrap())?);
             eprint!("Attempting {} ...", &board.to_fen());
             let start2 = Instant::now();
-            let (_best_move, score) = engine.go(&board, 7, Duration::from_secs(15))?;
+            let (_best_move, score) = engine.go(&board, 7, Duration::from_secs(60))?;
             let best_move = _best_move.unwrap();
             assert!(score <= -i16::MAX + 7 || score >= i16::MAX - 7, "didn't find mate in 4 for fen={fen}, instead saw best move as {best_move} with score {score}");
             eprintln!(" done in {:?}", start2.elapsed()); // time to beat: 10.31
