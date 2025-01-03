@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, result};
 use crate::chess_move::ChessMove;
 use crate::zobrist::ZobristBoardComponent;
 use std::ops::Range;
@@ -484,6 +484,15 @@ impl Board {
     /// Returns the number of pieces on the board
     pub fn count_pieces(&self) -> u32 {
         self.pieces.map(|p| p.count_ones()).iter().sum()
+    }
+
+    /// Returns bitmask of occupied square
+    pub fn occupied(&self) -> u64 {
+        let mut result = 0u64;
+        for p in self.pieces {
+            result |= p;
+        }
+        result
     }
 }
 
