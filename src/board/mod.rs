@@ -407,9 +407,7 @@ impl Board {
     /// Swaps sides of the board
     pub fn reflect_pieces(&self) -> [u64; 12] {
         let mut reflected = [0u64; 12];
-        for i in 0..=11 {
-            reflected[i] = self.pieces[i];
-        }
+        reflected[..(11 + 1)].copy_from_slice(&self.pieces[..(11 + 1)]);
 
         for piece in 0..=11 {
             for rank in 0..=3 {
@@ -567,7 +565,6 @@ impl Board {
         }
 
         for i in 0..=5 {
-            let i = i;
             self.pieces.swap(i, i + 6);
         }
 

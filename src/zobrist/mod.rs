@@ -143,7 +143,7 @@ impl ZobristHashTable {
         let data = 
             UnsafeCell::new(vec![ZobristHashTableEntry::default(); n_entries].into_boxed_slice());
 
-        Arc::new(Self { size: n_entries, data: data })
+        Arc::new(Self { size: n_entries, data })
     }
 
     pub fn put(&self, key: u64, value: ZobristHashTableEntry) {
@@ -222,7 +222,6 @@ mod tests {
             table_clone.put(5, ZobristHashTableEntry::new(0, 2, 0, ChessMove::default()));
         }).join();
 
-        dbg!(&table.get(5).depth);
         assert!(table.get(5).depth == 2);
         Ok(())
     }

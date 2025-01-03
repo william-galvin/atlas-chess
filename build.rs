@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
-    for (source_path, dest_path) in vec![
+    for (source_path, dest_path) in [
         ("nn-training/runs/run-1/nn.quant.onnx", "nn.quant.onnx"), 
         ("opening_book.csv", "opening_book.csv"),
     ] {

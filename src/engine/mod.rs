@@ -244,10 +244,6 @@ fn negamax(
     uci: UCIConfig,
 ) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
     
-    if Instant::now() > *deadline.read().unwrap() {
-        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "search timed out")));
-    }
-
     let z_key = root.zobrist.z_key;
     let z_sum = root.zobrist.z_sum;
     let mut principal_variation = None;
@@ -301,6 +297,10 @@ fn negamax(
 
     shuffle_tail(&mut child_nodes, uci.lazy_smp_shuffle_n);
     
+    if Instant::now() > *deadline.read().unwrap() {
+        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "search timed out")));
+    }
+
     let mut value = (None, i16::MIN);    
     for &child in &child_nodes {
         root.push_move(child);
@@ -577,7 +577,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore = "long running"]
     #[test]
     fn can_find_mate_in_4() -> Result<(), Box<dyn std::error::Error>> {
         let start = Instant::now();
@@ -609,7 +608,7 @@ mod tests {
             let (_best_move, score) = engine.go(&board, 7, Duration::from_secs(15))?;
             let best_move = _best_move.unwrap();
             assert!(score <= -i16::MAX + 7 || score >= i16::MAX - 7, "didn't find mate in 4 for fen={fen}, instead saw best move as {best_move} with score {score}");
-            eprintln!(" done in {:?}", start2.elapsed()); // time to beat: 13.18 at 1056cb1
+            eprintln!(" done in {:?}", start2.elapsed()); // time to beat: 10.31
         }
         println!("Time to check puzzles: {:?}", start.elapsed()); 
         Ok(())
