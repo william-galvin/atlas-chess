@@ -1,5 +1,3 @@
-use std::iter::zip;
-
 use crate::chess_move::ChessMove;
 use crate::board::{Board, WHITE, BLACK, KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN};
 
@@ -93,31 +91,10 @@ impl MoveGenerator {
         Self { sliding_moves: populate_sliding_moves() }
     }
 
-    /// Generates legal moves from a given position.
-    pub fn moves(&self, board: &mut Board) -> Vec<ChessMove> {
-        // self.pseudo_moves(board)
-        //     .into_iter()
-        //     .filter(|&chess_move| {
-        //         board.push_move(chess_move);
-        //         let valid_move = !self.phantom_check(board);
-        //         board.pop_move();
-        //         if !valid_move {
-        //             dbg!(board.to_fen(), chess_move);
-        //             panic!("found illegal move")
-        //         }
-        //         valid_move
-        //     })
-        //     .collect()
-        self.pseudo_moves(board)
-    }
-
-    /// Generates pseudo-legal moves from a given
+    /// Generates legal moves from a given
     /// position.
     ///
-    /// Pseudo-legal moves are like regular
-    /// legal moves, except they may result in the king
-    /// being in check, which is not legal.
-    pub fn pseudo_moves(&self, board: &Board) -> Vec<ChessMove> {
+    pub fn moves(&self, board: &Board) -> Vec<ChessMove> {
         let mut moves = Vec::with_capacity(50);
 
         let to_move = board.to_move();
@@ -131,13 +108,12 @@ impl MoveGenerator {
         }
 
         let (check_masks, pin_masks) = pin_and_check_masks(board, self_offset);
-        // dbg!(get_bits(pin_masks[51]));
         let mut legal_mask = [0u64; 64];
         for i in 0..64 {
             legal_mask[i] = check_masks[i] & pin_masks[i];
         }
 
-        self.king_moves(board, self_offset, self_mask, opp_mask, to_move, legal_mask, &mut moves);
+        self.king_moves(board, self_offset, self_mask, opp_mask, to_move, &mut moves);
         knight_moves(board.pieces, self_offset, self_mask, legal_mask, &mut moves);
         pawn_moves(board, self_offset, self_mask, opp_mask, to_move, legal_mask, &mut moves);
         self.magic_moves(board.pieces, self_offset, self_mask, opp_mask, ROOK, legal_mask, &mut moves);
@@ -169,7 +145,7 @@ impl MoveGenerator {
         bitmask
     }
 
-    /// Finds pseudo-legal rook/bishop moves
+    /// Finds legal rook/bishop moves
     fn magic_moves(
         &self,
         pieces: [u64; 12],
@@ -243,7 +219,7 @@ impl MoveGenerator {
         r_moves & rook_bboard != 0 || b_moves & bishop_bboard != 0 || k_moves & k_bboard != 0
     }
 
-    /// Finds pseudo-legal king moves
+    /// Finds legal king moves
     fn king_moves(
         &self,
         board: &Board,
@@ -251,10 +227,8 @@ impl MoveGenerator {
         self_mask: u64,
         opp_mask: u64,
         to_move: u64,
-        legal_mask: [u64; 64],
         results: &mut Vec<ChessMove>)
     {
-        let king_square = board.pieces[self_offset + KING].trailing_zeros();
         let opp_seen = self.seen(board, 6 - self_offset, self_mask | opp_mask, to_move ^ 1);
 
         get_k_moves(
@@ -410,7 +384,7 @@ fn pin_and_check_masks(board: &Board, self_offset: usize) -> ([u64; 64], [u64; 6
 }
 
 
-/// Finds pseudo-legal knight moves
+/// Finds legal knight moves
 fn knight_moves(pieces: [u64; 12], self_offset: usize, self_mask: u64, legal_mask: [u64; 64], results: &mut Vec<ChessMove>) {
     get_k_moves(
         pieces[self_offset + KNIGHT],
@@ -487,7 +461,7 @@ fn check_pawn_knight(bitboard: u64, square: usize, directions: Vec<i16>, thresho
     false
 }
 
-/// Finds pseudo-legal pawn moves
+/// Finds legal pawn moves
 fn pawn_moves(
     board: &Board,
     offset: usize,
@@ -987,13 +961,5 @@ mod tests {
         }
         let elapsed = start.elapsed();
         eprintln!("perft6: {:.4?}", elapsed);
-    }
-
-    #[test]
-    fn foo() {
-        let mg = MoveGenerator::new();
-
-        let mut board = Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/1B1PN3/1p2P3/2N2Q1p/PPPB1PPP/R3K2R b KQkq - 0 1").unwrap();
-        // assert_eq!(47, mg.moves(&mut board).len());        
     }
 }
