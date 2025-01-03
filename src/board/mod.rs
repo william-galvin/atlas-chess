@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, result};
 use crate::chess_move::ChessMove;
 use crate::zobrist::ZobristBoardComponent;
 use std::ops::Range;
