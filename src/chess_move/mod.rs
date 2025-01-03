@@ -105,13 +105,13 @@ impl ChessMove {
 
     /// Returns rank (0-7)
     #[inline]
-    pub fn rank(n: u16) -> u16 {
+    pub const fn rank(n: u16) -> u16 {
         n >> 3
     }
 
     /// Returns file (0-7)
     #[inline]
-    pub fn file(n: u16) -> u16 {
+    pub const fn file(n: u16) -> u16 {
         n & 7
     }
 }

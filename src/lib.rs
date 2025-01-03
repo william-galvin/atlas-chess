@@ -1,3 +1,5 @@
+#[allow(dead_code)]
+
 mod chess_move;
 mod board;
 mod move_generator;
