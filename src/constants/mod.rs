@@ -37,6 +37,9 @@ pub struct UCIConfig {
 
     // If true, use lichess syzygy tablebase
     pub tablebase: bool,
+
+    // Max number of moves to look past the horizon
+    pub qsearch_depth: u8,
 }
 
 impl UCIConfig {
@@ -52,6 +55,7 @@ impl UCIConfig {
             ponder_cache_size: 1000, 
             own_book: true,
             tablebase: true,
+            qsearch_depth: 4,
         }
     }
 
@@ -67,6 +71,7 @@ impl UCIConfig {
             "option name ponder_cache_size type spin default 1000 min 1 max 1073741824",
             "option name OwnBook type button default true",
             "option name tablebase type button default true",
+            "option name qsearch_depth type spin default 5",
         ];
 
         options.join("\n")
@@ -113,6 +118,10 @@ impl UCIConfig {
             },
             "tablebase" => {
                 self.tablebase = value.parse()?;
+                Ok(false)
+            },
+            "qsearch_depth" => {
+                self.qsearch_depth = value.parse()?; 
                 Ok(false)
             },
             _ => {
