@@ -222,7 +222,6 @@ mod tests {
             table_clone.put(5, ZobristHashTableEntry::new(0, 2, 0, ChessMove::default()));
         }).join();
 
-        dbg!(&table.get(5).depth);
         assert!(table.get(5).depth == 2);
         Ok(())
     }

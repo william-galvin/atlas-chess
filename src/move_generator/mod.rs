@@ -356,7 +356,6 @@ fn pin_and_check_masks(board: &Board, self_offset: usize) -> ([u64; 64], [u64; 6
                     if pinned != -1 {
                         pin_masks[pinned as usize] = ray_mask;
                     } else {
-                        // dbg!(king_idx, dir, square, format!("{:064b}", opp_slider));
                         checks += 1;
                         check_mask |= ray_mask;
                     }
@@ -422,26 +421,6 @@ fn get_k_moves(bitboard: u64, self_mask: u64, directions: [i16; 8], threshold: u
             if legal_mask[i] >> to & 1 == 1 {
                 results.push(ChessMove::new(i as u16, to, 0));
             }
-        }
-    }
-}
-
-/// Helper function to check if king is in check by a sliding piece, parameterized
-/// to specify which direction
-#[allow(unused)]
-fn check_sliding_direction(board: &Board, offset: usize, square: u16, update: i16, pieces: Vec<usize>, blockers: u64) -> bool {
-    let mut target_square = square;
-    let pieces_mask = pieces.iter().fold(0, |acc, &x| acc | board.pieces[x + offset]);
-    loop {
-        target_square = match validate_move(target_square, update, 1) {
-            None => return false,
-            Some(s) => s
-        };
-        if blockers >> target_square & 1 == 1 {
-            if pieces_mask >> target_square & 1 == 1 {
-                return true;
-            }
-            return false;
         }
     }
 }
@@ -701,12 +680,11 @@ fn get_bits(n: u64) -> BitIndices {
 
 /// https://www.chessprogramming.org/Perft
 /// https://www.chessprogramming.org/Perft_Results
-#[allow(unused)]
+#[cfg(test)]
 pub fn perft(depth: i32, board: &mut Board, move_gen: &MoveGenerator) -> usize {
     let moves = move_gen.moves(board);
 
     if depth == 1 {
-        // println!("{} {}", board.to_fen(), moves.len());
         return moves.len();
     }
 
