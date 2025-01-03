@@ -700,12 +700,10 @@ pub fn perft(depth: i32, board: &mut Board, move_gen: &MoveGenerator) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use crate::board;
-
     use super::*;
     use std::io::{self, BufRead};
     use std::fs::File;
-    use std::time::{Instant};
+    use std::time::Instant;
 
     #[test]
     fn check_test_knight() {
