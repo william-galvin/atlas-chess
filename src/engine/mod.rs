@@ -577,7 +577,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore = "long running"]
     #[test]
     fn can_find_mate_in_4() -> Result<(), Box<dyn std::error::Error>> {
         let start = Instant::now();
