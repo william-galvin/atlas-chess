@@ -11,6 +11,7 @@ use crate::board::{Board, WHITE};
 use crate::constants::UCIConfig;
 use crate::liches::tablebase_lookup;
 use crate::lru_cache::LRUCache;
+use crate::static_evaluation::{static_evaluation, QUEEN_VALUE};
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
 use crate::move_generator::MoveGenerator;
 use crate::chess_move::ChessMove;
@@ -340,7 +341,7 @@ fn qsearch(
     }
     
     // delta pruning
-    let delta = 1000; // TODO - delta should be queen value, set in a config somewhere
+    let delta = QUEEN_VALUE;
     if best_value + delta < alpha {
         return best_value;
     }
@@ -430,23 +431,6 @@ fn shuffle_tail(child_nodes: &mut [ChessMove], shuffle_n: usize) {
     }
 }
 
-/// Returns a large positive number if board is good for white,
-/// large negative if good for black
-fn static_evaluation(board: &Board) -> i16 {
-    count_pieces(board)
-}
-
-/// Static material evaluation
-fn count_pieces(board: &Board) -> i16 {
-    let mut sum = 0;
-    let idxs_weights = vec![(0, 100), (1, 300), (2, 300), (3, 500), (4, 900)]; // TODO put in cofig
-    for &(idx, weight) in &idxs_weights {
-        sum += weight * board.pieces[idx].count_ones() as i16;
-        sum -= weight * board.pieces[idx + 6].count_ones() as i16;
-    }
-    sum
-}
-
 fn get_file(path: &str) -> PathBuf {
     let exe_dir = std::env::current_exe()
         .expect("Failed to get the current executable path")
@@ -519,13 +503,6 @@ mod tests {
         let res = engine.nn.run(ort::inputs![bitboard_onnx_order_vec(board.pieces)].unwrap()).unwrap();
         let _scores = &res[2].try_extract_tensor::<f32>().unwrap();
 
-        Ok(())
-    }
-
-    #[test]
-    fn count_pieces_test() -> Result<(), Box<dyn std::error::Error>> {
-        assert!(count_pieces(&Board::new()) == 0);
-        assert!(count_pieces(&Board::from_fen("2r3k1/pp1q4/1n2pr2/n2p3Q/2PP4/7P/2R2PP1/5RK1 w - - 0 32")?) == -500);
         Ok(())
     }
 
