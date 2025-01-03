@@ -242,18 +242,18 @@ impl MoveGenerator {
         
         if to_move == WHITE {
             if board.pieces[self_offset + KING] >> 4 & 1 == 1 && opp_seen & 1 << 4 == 0 {
-                if board.white_king_castle() && self.can_castle(board, vec![5, 6], self_mask, opp_mask, None, opp_seen) {
+                if board.white_king_castle() && self.can_castle(vec![5, 6], self_mask, opp_mask, None, opp_seen) {
                     results.push(ChessMove::new(4, 6, 3));
                 }
-                if board.white_queen_castle() && self.can_castle(board, vec![2, 3], self_mask, opp_mask, Some(1), opp_seen) {
+                if board.white_queen_castle() && self.can_castle(vec![2, 3], self_mask, opp_mask, Some(1), opp_seen) {
                     results.push(ChessMove::new(4, 2, 3));
                 }
             }
         } else if board.pieces[self_offset + KING] >> 60 & 1 == 1 && opp_seen & 1 << 60 == 0 {
-            if board.black_king_castle() && self.can_castle(board, vec![61, 62], self_mask, opp_mask, None, opp_seen) {
+            if board.black_king_castle() && self.can_castle(vec![61, 62], self_mask, opp_mask, None, opp_seen) {
                 results.push(ChessMove::new(60, 62, 3));
             }
-            if board.black_queen_castle() && self.can_castle(board, vec![58, 59], self_mask, opp_mask, Some(57), opp_seen) {
+            if board.black_queen_castle() && self.can_castle(vec![58, 59], self_mask, opp_mask, Some(57), opp_seen) {
                 results.push(ChessMove::new(60, 58, 3));
             }
         }
@@ -273,7 +273,7 @@ impl MoveGenerator {
     }
 
     /// Helper for adding castle moves
-    fn can_castle(&self, board: &Board, squares: Vec<usize>, self_mask: u64, opp_mask: u64, queen_side: Option<u16>, opp_seen: u64) -> bool {
+    fn can_castle(&self, squares: Vec<usize>, self_mask: u64, opp_mask: u64, queen_side: Option<u16>, opp_seen: u64) -> bool {
         let blockers = self_mask | opp_mask;
         for square in squares {
             if blockers >> square & 1 == 1 || (opp_seen >> square & 1 == 1) {
@@ -593,9 +593,9 @@ fn rook_bishop_moves(square: usize, cross: u64, piece_type: usize) -> Box<[u64; 
     
     for pattern_idx in 0..(1 << move_idxs.len()) {
         let mut blocker_bitboard = 0u64;
-        for bit_idx in 0..move_idxs.len() {
+        for (bit_idx, shift) in move_idxs.iter().enumerate() {
             let bit = (pattern_idx >> bit_idx) & 1;
-            blocker_bitboard |= bit << move_idxs[bit_idx];
+            blocker_bitboard |= bit << shift;
         }
         let moves = get_moves_from_blockers(square, blocker_bitboard, if piece_type == ROOK {
             [8, -8, 1, -1]

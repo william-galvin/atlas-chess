@@ -56,7 +56,7 @@ impl UCIConfig {
     }
 
     pub fn help() -> String {
-        let options = vec![
+        let options = [
             "option name tt_cache_size type spin default 1073741824 min 1 max 1073741824",
             "option name n_onnx_threads type spin default 4 min 1 max 1024",
             "option name deep_move_ordering_depth type spin default 0 min 0 max 255",
@@ -116,7 +116,7 @@ impl UCIConfig {
                 Ok(false)
             },
             _ => {
-                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "invalid uci option")))
+                Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "invalid uci option")))
             }
         }
     }

@@ -143,7 +143,7 @@ impl ZobristHashTable {
         let data = 
             UnsafeCell::new(vec![ZobristHashTableEntry::default(); n_entries].into_boxed_slice());
 
-        Arc::new(Self { size: n_entries, data: data })
+        Arc::new(Self { size: n_entries, data })
     }
 
     pub fn put(&self, key: u64, value: ZobristHashTableEntry) {
