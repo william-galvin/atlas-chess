@@ -25,9 +25,9 @@ pub struct UCIConfig {
     // Actually the time each negamax instance has before terminating
     pub search_time: std::time::Duration,
 
-    // The maximun search depth for ponder searches. Regular searches are 
-    // limited by time, not depth.
-    pub ponder_search_depth: u8,
+    // The maximun search depth for searches - also 
+    // limited by time
+    pub search_depth: u8,
 
     // Number of LRU cache entries for ponder cache
     pub ponder_cache_size: usize,
@@ -51,7 +51,7 @@ impl UCIConfig {
             lazy_smp_shuffle_n: 20, 
             lazy_smp_parallel_root: 2, 
             search_time: std::time::Duration::from_secs(3), 
-            ponder_search_depth: 7, 
+            search_depth: 7, 
             ponder_cache_size: 1000, 
             own_book: true,
             tablebase: true,
@@ -67,11 +67,11 @@ impl UCIConfig {
             "option name lazy_smp_shuffle_n type spin default 20 min 0 max 1024",
             "option name lazy_smp_parallel_root type spin default 2 min 0 max 64",
             "option name search_time type spin default 3 min 0 max 1000000",
-            "option name ponder_search_depth type spin default 7 min 0 max 255",
+            "option name search_depth type spin default 7 min 0 max 255",
             "option name ponder_cache_size type spin default 1000 min 1 max 1073741824",
             "option name OwnBook type button default true",
             "option name tablebase type button default true",
-            "option name qsearch_depth type spin default 5",
+            "option name qsearch_depth type spin default 4",
         ];
 
         options.join("\n")
@@ -104,8 +104,8 @@ impl UCIConfig {
                 self.search_time = std::time::Duration::from_secs(value.parse()?);
                 Ok(false)
             },
-            "ponder_search_depth" => {
-                self.ponder_search_depth = value.parse()?; 
+            "search_depth" => {
+                self.search_depth = value.parse()?; 
                 Ok(false)
             },
             "ponder_cache_size" => {

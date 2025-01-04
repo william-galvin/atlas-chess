@@ -12,6 +12,7 @@ use std::io::{self, BufRead, Write};
 use std::fs::File;
 
 use constants::UCIConfig;
+use engine::format_score_info;
 
 use crate::board::Board;
 use crate::engine::Engine;
@@ -101,10 +102,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             "go" => {
                 game_manager.engine.ponder_stop();
-                let best_move = game_manager.engine.go(&game_manager.board, u8::MAX, game_manager.uci.search_time)?;
+                let best_move = 
+                    game_manager.engine.go(&game_manager.board, game_manager.uci.search_depth, game_manager.uci.search_time)?;
+                println!("info score {}", format_score_info(best_move.1));
                 println!("bestmove {:#}", best_move.0.unwrap());
                 game_manager.board.push_move(best_move.0.unwrap());
-                game_manager.engine.ponder_start(&game_manager.board, game_manager.uci.ponder_search_depth);
+                game_manager.engine.ponder_start(&game_manager.board, game_manager.uci.search_depth);
                 game_manager.board.pop_move();
             }
             _ => {

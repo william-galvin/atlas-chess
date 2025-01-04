@@ -618,7 +618,7 @@ fn get_moves_from_blockers(square: usize, blocker_bitboard: u64, directions: [i1
 
 /// Returns a mask of all squares surrounding a given square, 
 /// as if accessible by a king
-fn get_king_circle(square: usize) -> u64 {
+pub fn get_king_circle(square: usize) -> u64 {
     let king_pos: u64 = 1 << square; // Set the king's position as a single bit in a 64-bit integer
 
     // Calculate attacks
@@ -663,7 +663,7 @@ fn get_bishop_cross(square: usize) -> u64 {
     cross
 }
 
-struct BitIndices {
+pub struct BitIndices {
     n: u64,
 }
 
@@ -682,7 +682,7 @@ impl Iterator for BitIndices {
 }
 
 /// returns a vector describing bits set to 1
-fn get_bits(n: u64) -> BitIndices {
+pub fn get_bits(n: u64) -> BitIndices {
     BitIndices { n }
 }
 
