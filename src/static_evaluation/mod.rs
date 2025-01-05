@@ -7,7 +7,7 @@ use crate::board::{
     ROOK
 };
 use crate::chess_move::ChessMove;
-use crate::move_generator::{get_bits, get_king_circle};
+use crate::move_generator::{get_bits, get_king_circle, knight_moves, pawn_seen, MoveGenerator};
 
 pub const QUEEN_VALUE: i16 = 1000;
 pub const ROOK_VALUE: i16 = 525;
@@ -172,13 +172,131 @@ const EG_KING: [i16; 64] = [
   -53, -34, -21, -11, -28, -14, -24, -43
 ];
 
+// ATTACK UNIT SAFETY TABLE
+const SAFETY_TABLE: [i16; 100] = [
+    0,  0,   1,   2,   3,   5,   7,   9,  12,  15,
+  18,  22,  26,  30,  35,  39,  44,  50,  56,  62,
+  68,  75,  82,  85,  89,  97, 105, 113, 122, 131,
+ 140, 150, 169, 180, 191, 202, 213, 225, 237, 248,
+ 260, 272, 283, 295, 307, 319, 330, 342, 354, 366,
+ 377, 389, 401, 412, 424, 436, 448, 459, 471, 483,
+ 494, 500, 500, 500, 500, 500, 500, 500, 500, 500,
+ 550, 550, 550, 550, 575, 575, 575, 625, 625, 625,
+ 650, 650, 650, 675, 675, 675, 700, 700, 700, 700,
+ 700, 700, 700, 700, 700, 700, 700, 700, 700, 700
+];
 
 /// Returns a large positive number if board is good for white,
 /// large negative if good for black
-pub fn static_evaluation(pieces: [u64; 12]) -> i16 {
+pub fn static_evaluation(pieces: [u64; 12], move_generator: &MoveGenerator) -> i16 {
+    let attacks = get_attacks(pieces, move_generator);
+
     material_eval(pieces) + 
     piece_square_tables(pieces) +
-    pawn_structure(pieces)
+    pawn_structure(pieces) +
+    king_safety(pieces, &attacks)
+}
+
+/// Returns type: array A where A[i] gives an bitmask of attacking pieces for square i.
+/// Eg A[34] := 0b000...01101 indicates one attacking white pawn and two white knights.
+/// This only accounts for the first two instances of a piece
+fn get_attacks(pieces: [u64; 12], move_generator: &MoveGenerator) -> [u32; 64] {
+    let mut attacks = [0u32; 64];
+    let mut moves = Vec::with_capacity(32);
+
+    let mut occupied = 0u64;
+    for p in pieces {
+        occupied |= p;
+    }
+
+    pawn_seen(pieces, 0, 0, &mut moves);
+    add_attackers(&mut attacks, &mut moves, 0);
+
+    pawn_seen(pieces, 6, 1, &mut moves);
+    add_attackers(&mut attacks, &mut moves, 6 * 2);
+    
+    knight_moves(pieces, 0, 0u64, [u64::MAX; 64], &mut moves);
+    add_attackers(&mut attacks, &mut moves, KNIGHT * 2);
+
+    knight_moves(pieces, 6, 0u64, [u64::MAX; 64], &mut moves);
+    add_attackers(&mut attacks, &mut moves, (KNIGHT + 6) * 2);
+
+    move_generator.magic_moves(pieces, 0, 0u64, occupied, ROOK, [u64::MAX; 64], &mut moves);
+    add_magic_attackers(&mut attacks, &mut moves, [ROOK, QUEEN], pieces);
+
+    move_generator.magic_moves(pieces, 6, 0u64, occupied, ROOK, [u64::MAX; 64], &mut moves);
+    add_magic_attackers(&mut attacks, &mut moves, [ROOK + 6, QUEEN + 6], pieces);
+    
+    move_generator.magic_moves(pieces, 0, 0u64, occupied, BISHOP, [u64::MAX; 64], &mut moves);
+    add_magic_attackers(&mut attacks, &mut moves, [BISHOP, QUEEN], pieces);
+
+    move_generator.magic_moves(pieces, 6, 0u64, occupied, BISHOP, [u64::MAX; 64], &mut moves);
+    add_magic_attackers(&mut attacks, &mut moves, [BISHOP + 6, QUEEN + 6], pieces);
+
+    attacks
+}
+
+/// Updates bitboard with attackers or'd in 
+fn add_attackers(attacks: &mut [u32; 64], moves: &mut Vec<ChessMove>, shift: usize) {
+    let n = moves.len();
+    for _ in 0..n {
+        let to = moves.pop().unwrap().to() as usize;
+        let prev = attacks[to];
+        attacks[to] |= prev + (1 << shift);
+    }
+}
+
+/// Updates bitboard with attackers or'd in, 
+/// aware that attackers may be queen or bishop/rook
+fn add_magic_attackers(attacks: &mut [u32; 64], moves: &mut Vec<ChessMove>, options: [usize; 2], pieces: [u64; 12]) {
+    let n = moves.len();
+    for _ in 0..n {
+        let m = moves.pop().unwrap();
+
+        let to = m.to() as usize;
+        let from = m.from();
+        
+        let shift = if pieces[options[0]] >> from & 1 == 1 {
+            options[0] * 2
+        } else {
+            options[1] * 2
+        };
+
+        let prev = attacks[to];
+        attacks[to] |= prev + (1 << shift);
+    }
+}
+
+/// Evalutation based on king safety, as described
+/// here: https://www.chessprogramming.org/King_Safety#Attack_Units
+/// 
+/// TODO: reuse calculations from move generator to find reachable squares
+fn king_safety(pieces: [u64; 12], attacks: &[u32; 64]) -> i16 {
+    let king_zone_white = get_king_zone(pieces[KING].trailing_zeros() as usize, true);
+    let king_zone_black = get_king_zone(pieces[KING + 6].trailing_zeros() as usize, false);
+
+    let mut units_arr = [0, 0];
+
+    for (zone, opp_offset, idx) in [(king_zone_white, 6, 0), (king_zone_black, 0, 1)] {
+        for square in get_bits(zone) {
+            for (piece, units) in [(KNIGHT, 2), (BISHOP, 2), (ROOK, 3), (QUEEN, 5)] {
+                let shift = (piece + opp_offset) * 2;
+                units_arr[idx] += (attacks[square] >> shift & 0b11).count_ones() * units;
+            }
+        }
+    }
+    
+    SAFETY_TABLE[units_arr[1] as usize] - SAFETY_TABLE[units_arr[0] as usize]
+}
+
+/// Returns a mask of the "king zone", which includes the king's circle and
+/// three additional squares from each square in the circle in the direction of the enemy.
+pub fn get_king_zone(square: usize, white: bool) -> u64 {
+    let mut king_zone = get_king_circle(square);
+    for _ in 0..2 {
+        king_zone |= if white { king_zone << 8 } else { king_zone >> 8};
+    }
+    king_zone
 }
 
 /// Evaluation based on patterns of pawns
@@ -398,6 +516,90 @@ mod tests {
     fn pawn_structure_isolated() -> Result<(), Box<dyn std::error::Error>> { 
         assert_eq!(-2 * ISOLATED_PAWN_PENALTY, pawn_structure(Board::from_fen("k7/8/8/8/4P3/6P1/8/K7 w - - 0 1")?.pieces));
         assert_eq!(2 * ISOLATED_PAWN_PENALTY, pawn_structure(Board::from_fen("k7/8/8/6p1/8/6p1/8/K7 w - - 0 1")?.pieces));
+        Ok(())
+    }
+
+    #[test]
+    fn attacks_knights_plausible() -> Result<(), Box<dyn std::error::Error>> {
+        let move_generator = MoveGenerator::new();
+        
+        let board = Board::from_fen("8/8/8/8/3N4/5N2/8/8 w - - 0 1")?;
+        let attacks = get_attacks(board.pieces, &move_generator);
+        for square in [4, 6, 10, 12, 15, 17, 21, 27, 31, 33, 36, 37, 38, 42, 44] {
+            assert_eq!(0b01, attacks[square] >> 2 & 0b11);
+        }
+
+        let board = Board::from_fen("8/8/8/8/3n4/5n2/8/8 w - - 0 1")?;
+        let attacks = get_attacks(board.pieces, &move_generator);
+        for square in [4, 6, 10, 12, 15, 17, 21, 27, 31, 33, 36, 37, 38, 42, 44] {
+            assert_eq!(0b01, attacks[square] >> 14 & 0b11);
+        }
+
+        let board = Board::from_fen("8/8/2p1p3/1p2ppp1/7p/1p1N1N2/2p1p2p/4p1p1 w - - 0 1")?;
+        let attacks = get_attacks(board.pieces, &move_generator);
+        for square in [4, 36] {
+            assert_eq!(0b11, attacks[square] >> 2 & 0b11);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn attacks_sliding_plausible() -> Result<(), Box<dyn std::error::Error>> {
+        let move_generator = MoveGenerator::new();
+        let board = Board::from_fen("8/4B1Q1/8/6B1/8/2r1P3/2q5/8 w - - 0 1")?;
+
+        let attacks = get_attacks(board.pieces, &move_generator);
+        
+        assert_eq!(0b01, attacks[20] >> ((ROOK + 6) * 2) & 0b11);
+        assert_eq!(0b00, attacks[20] >> ((QUEEN + 6) * 2) & 0b11);
+
+        assert_eq!(0b01, attacks[19] >> ((ROOK + 6) * 2) & 0b11);
+        assert_eq!(0b01, attacks[19] >> ((QUEEN + 6) * 2) & 0b11);
+
+        assert_eq!(0b11, attacks[45] >> (BISHOP * 2) & 0b11);
+        assert_eq!(0b01, attacks[45] >> (QUEEN * 2) & 0b11);
+
+        Ok(())
+    }
+
+    #[test]
+    fn king_zone_correct() -> Result<(), Box<dyn std::error::Error>> {
+        for square in 0..64 {
+            let zone = get_king_zone(square, true);
+            assert!(zone.count_ones() <= 15);
+
+            let rank = ChessMove::rank(square as u16);
+            let file = ChessMove::file(square as u16);
+
+            if rank > 0 {
+                assert_eq!(1, zone >> (square - 8) & 1);
+                if file > 0 {
+                    assert_eq!(1, zone >> (square - 9) & 1);
+                }
+                if file < 7 {
+                    assert_eq!(1, zone >> (square - 7) & 1);
+                }
+            }
+            if file > 0 {
+                assert_eq!(1, zone >> (square - 1) & 1);
+            }
+            if file < 7 {
+                assert_eq!(1, zone >> (square + 1) & 1);
+            }
+            for forward in 1..=2 {
+                if rank <= 7 - forward as u16 {
+                    assert_eq!(1, zone >> (square + 8 * forward) & 1);
+                    if file > 0 {
+                        assert_eq!(1, zone >> (square + (8 * forward) - 1) & 1);
+                    }
+                    if file < 7 {
+                        assert_eq!(1, zone >> (square + (8 * forward) + 1) & 1);
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 }

@@ -146,7 +146,7 @@ impl MoveGenerator {
     }
 
     /// Finds legal rook/bishop moves
-    fn magic_moves(
+    pub fn magic_moves(
         &self,
         pieces: [u64; 12],
         offset: usize,
@@ -392,7 +392,7 @@ fn pin_and_check_masks(board: &Board, self_offset: usize) -> ([u64; 64], [u64; 6
 
 
 /// Finds legal knight moves
-fn knight_moves(pieces: [u64; 12], self_offset: usize, self_mask: u64, legal_mask: [u64; 64], results: &mut Vec<ChessMove>) {
+pub fn knight_moves(pieces: [u64; 12], self_offset: usize, self_mask: u64, legal_mask: [u64; 64], results: &mut Vec<ChessMove>) {
     get_k_moves(
         pieces[self_offset + KNIGHT],
         self_mask,
@@ -404,7 +404,7 @@ fn knight_moves(pieces: [u64; 12], self_offset: usize, self_mask: u64, legal_mas
 }
 
 /// psuedo-moves of squares seen by king
-fn king_seen(pieces: [u64; 12], self_offset: usize, results: &mut Vec<ChessMove>) {
+pub fn king_seen(pieces: [u64; 12], self_offset: usize, results: &mut Vec<ChessMove>) {
     get_k_moves(
         pieces[self_offset + KING], 
         0u64, [-8, 8, 1, -1, 9, 7, -9, -7],
@@ -522,7 +522,7 @@ fn pawn_moves(
 }
 
 /// Returns pseudo-legals of squares seen by pawns (the two diagonals, no enpassant)
-fn pawn_seen(pieces: [u64; 12], offset: usize, to_move: u64, results: &mut Vec<ChessMove>) {
+pub fn pawn_seen(pieces: [u64; 12], offset: usize, to_move: u64, results: &mut Vec<ChessMove>) {
     let direction = if to_move == WHITE { 1 } else { -1 };
     for i_size in get_bits(pieces[offset + PAWN]) {
         let i = i_size as u16;
@@ -619,18 +619,15 @@ fn get_moves_from_blockers(square: usize, blocker_bitboard: u64, directions: [i1
 /// Returns a mask of all squares surrounding a given square, 
 /// as if accessible by a king
 pub fn get_king_circle(square: usize) -> u64 {
-    let king_pos: u64 = 1 << square; // Set the king's position as a single bit in a 64-bit integer
+    let king_pos: u64 = 1 << square;
 
-    // Calculate attacks
-                    // Down-Left
-
-    (king_pos << 8) | (king_pos >> 8) |                // Up and Down
-                  ((king_pos & !0x8080808080808080) << 1) |               // Right (exclude leftmost column wrap)
-                  ((king_pos & !0x0101010101010101) >> 1) |               // Left (exclude rightmost column wrap)
-                  ((king_pos & !0x8080808080808080) << 9) |               // Up-Right
-                  ((king_pos & !0x8080808080808080) >> 7) |               // Down-Right
-                  ((king_pos & !0x0101010101010101) << 7) |               // Up-Left
-                  ((king_pos & !0x0101010101010101) >> 9)
+    (king_pos << 8) | (king_pos >> 8) |
+    ((king_pos & !0x8080808080808080) << 1) | 
+    ((king_pos & !0x0101010101010101) >> 1) |
+    ((king_pos & !0x8080808080808080) << 9) | 
+    ((king_pos & !0x8080808080808080) >> 7) | 
+    ((king_pos & !0x0101010101010101) << 7) | 
+    ((king_pos & !0x0101010101010101) >> 9)
 }
 
 /// Returns a mask of all squares on rank + file as given

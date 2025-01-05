@@ -351,7 +351,7 @@ fn qsearch(
         }
     } 
 
-    let mut best_value = static_evaluation(root.pieces) * color;
+    let mut best_value = static_evaluation(root.pieces, move_generator) * color;
 
     if depth == 0 {
         return best_value;
@@ -478,6 +478,7 @@ fn get_book(path: &str) -> io::Result<HashMap<String, (ChessMove, i16)>> {
     let reader = io::BufReader::new(file);
 
     let mut book = HashMap::new();
+    let move_generator = MoveGenerator::new();
 
     for line in reader.lines() {
         let mut _line = line?;
@@ -494,7 +495,7 @@ fn get_book(path: &str) -> io::Result<HashMap<String, (ChessMove, i16)>> {
             .map(|m| ChessMove::from_str(m).unwrap())
             .map(|m| {
                 board.push_move(m);
-                let eval = static_evaluation(board.pieces);
+                let eval = static_evaluation(board.pieces, &move_generator);
                 board.pop_move();
                 (m, eval)
             })
