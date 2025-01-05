@@ -92,7 +92,7 @@ impl ZobristBoardComponent {
         let mut z_sum = 0;
 
         let z64 = Arc::new(ZobristLookupTable::new(0));
-        let z16 = Arc::new(ZobristLookupTable::new(404));
+        let z16 = Arc::new(ZobristLookupTable::new(522));
 
         for piece in 0..12 {
             for square in 0..64 {

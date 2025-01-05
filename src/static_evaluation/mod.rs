@@ -21,6 +21,16 @@ const CONNECTED_PAWN_BONUS: i16 = 25;
 const DOUBLED_PAWN_PENALTY: i16 = 25;
 const ISOLATED_PAWN_PENALTY: i16 = 25;
 
+const MINOR_ATTACK_UNITS: u32 = 2;
+const ROOK_ATTACK_UNITS: u32 = 3;
+const QUEEN_ATTACK_UNITS: u32 = 5;
+
+const QUEEN_INVERSE: i16 = 4;
+const ROOK_INVERSE: i16 = 10;
+const BISHOP_INVERSE: i16 = 30;
+const KNIGHT_INVERSE: i16 = 30;
+const PAWN_INVERSE: i16 = 50;
+
 // PIECE SQUARE TABLES
 const INTERPOLANTS: [i16; 33] = [
     0, 0, 0, 0, 0, 1, 1, 2,
@@ -194,7 +204,8 @@ pub fn static_evaluation(pieces: [u64; 12], move_generator: &MoveGenerator) -> i
     material_eval(pieces) + 
     piece_square_tables(pieces) +
     pawn_structure(pieces) +
-    king_safety(pieces, &attacks)
+    king_safety(pieces, &attacks) * 2 + 
+    square_control(&attacks) / 2 
 }
 
 /// Returns type: array A where A[i] gives an bitmask of attacking pieces for square i.
@@ -267,6 +278,30 @@ fn add_magic_attackers(attacks: &mut [u32; 64], moves: &mut Vec<ChessMove>, opti
     }
 }
 
+/// Evaluation of attacks/defenses of squares, orthogonal to occupancy
+fn square_control(attacks: &[u32; 64]) -> i16 {
+    let mut sum = 0;
+
+    for square in 0..64 {
+        let attackers = attacks[square];
+        for (piece, inverse) in [
+            (PAWN, PAWN_INVERSE),
+            (KNIGHT, KNIGHT_INVERSE),
+            (BISHOP, BISHOP_INVERSE),
+            (ROOK, ROOK_INVERSE),
+            (QUEEN, QUEEN_INVERSE)
+        ] {
+            let white_shift = piece * 2;
+            let black_shift = (piece + 6) * 2;
+
+            sum += ((attackers >> white_shift) & 0b11).count_ones() as i16 * inverse;
+            sum -= ((attackers >> black_shift) & 0b11).count_ones() as i16 * inverse;
+        }
+    }
+
+    sum / 10
+}
+
 /// Evalutation based on king safety, as described
 /// here: https://www.chessprogramming.org/King_Safety#Attack_Units
 /// 
@@ -279,7 +314,12 @@ fn king_safety(pieces: [u64; 12], attacks: &[u32; 64]) -> i16 {
 
     for (zone, opp_offset, idx) in [(king_zone_white, 6, 0), (king_zone_black, 0, 1)] {
         for square in get_bits(zone) {
-            for (piece, units) in [(KNIGHT, 2), (BISHOP, 2), (ROOK, 3), (QUEEN, 5)] {
+            for (piece, units) in [
+                    (KNIGHT, MINOR_ATTACK_UNITS), 
+                    (BISHOP, MINOR_ATTACK_UNITS), 
+                    (ROOK, ROOK_ATTACK_UNITS), 
+                    (QUEEN, QUEEN_ATTACK_UNITS)
+                ] {
                 let shift = (piece + opp_offset) * 2;
                 units_arr[idx] += (attacks[square] >> shift & 0b11).count_ones() * units;
             }
