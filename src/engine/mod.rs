@@ -278,7 +278,6 @@ fn negamax(
 
     if depth == 0 {
         let eval = qsearch(root, alpha, beta, color, move_generator, uci.qsearch_depth);
-        // let eval = static_evaluation(root.pieces) * color;
         transposition_table.put(z_key, ZobristHashTableEntry::new(z_sum, depth, eval, ChessMove::default()));
         return Ok((Some(ChessMove::default()), eval));
     } 

@@ -71,13 +71,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     game_manager.engine = Engine::new(
                         MoveGenerator::new(), 
                         game_manager.uci.clone()
-                    ).unwrap()
+                    )?
                 }
             }
             "isready" => { 
                 println!("readyok");
             },
-            "ucinewgame" => {},
+            "ucinewgame" => {
+                game_manager.engine = Engine::new(
+                    MoveGenerator::new(), 
+                    game_manager.uci.clone()
+                )?
+            },
             "position" => {
                 let moves_offset;
                 game_manager.board = match msg[1] {
