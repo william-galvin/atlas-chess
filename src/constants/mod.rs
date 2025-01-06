@@ -40,6 +40,13 @@ pub struct UCIConfig {
 
     // Max number of moves to look past the horizon
     pub qsearch_depth: u8,
+
+    // Depth at which to stop using static eval for forward pruning
+    pub static_forward_pruning_depth: u8, 
+
+    // Max branching factor if forward pruning
+    pub static_forward_pruning_branch: usize,
+
 }
 
 impl UCIConfig {
@@ -56,6 +63,8 @@ impl UCIConfig {
             own_book: true,
             tablebase: true,
             qsearch_depth: 4,
+            static_forward_pruning_depth: 3,
+            static_forward_pruning_branch: 10,
         }
     }
 
@@ -72,6 +81,8 @@ impl UCIConfig {
             "option name OwnBook type button default true",
             "option name tablebase type button default true",
             "option name qsearch_depth type spin default 4",
+            "option name static_forward_pruning_depth type spin default 3",
+            "option name static_forward_pruning_branch type spin default 10",
         ];
 
         options.join("\n")
@@ -122,6 +133,14 @@ impl UCIConfig {
             },
             "qsearch_depth" => {
                 self.qsearch_depth = value.parse()?; 
+                Ok(false)
+            },
+            "static_forward_pruning_depth" => {
+                self.static_forward_pruning_depth = value.parse()?; 
+                Ok(false)
+            },
+            "static_forward_pruning_branch" => {
+                self.static_forward_pruning_branch = value.parse()?; 
                 Ok(false)
             },
             _ => {

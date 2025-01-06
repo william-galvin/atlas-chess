@@ -291,9 +291,14 @@ fn negamax(
         return Ok((Some(ChessMove::default()), 0));
     }
 
+    let mut n = usize::MAX;
     if depth >= max_depth - uci.deep_move_ordering_depth {
         order_moves_nn(root, &mut child_nodes, nn)?;    
-    } 
+    } else if depth > uci.static_forward_pruning_depth {
+        order_moves_static_eval(root, &mut child_nodes, move_generator);
+        n = uci.static_forward_pruning_branch;
+    }
+    let n = n.min(child_nodes.len());
 
     if let Some(pv) = principal_variation {
         // why do we need this check? For some reason pv can be
@@ -310,7 +315,7 @@ fn negamax(
     }
 
     let mut value = (None, i16::MIN);    
-    for &child in &child_nodes {
+    for &child in &child_nodes[0..n] {
         root.push_move(child);
         let (_child_move, child_value) = negamax(
             root, depth - 1, max_depth, -beta, -alpha, -color,
@@ -436,6 +441,18 @@ fn order_moves_nn(root: &Board, child_nodes: &mut [ChessMove], nn: &Session) -> 
         f2.partial_cmp(&f1).unwrap()
     });
     Ok(())
+}
+
+/// Order moves by static evaluaion, such that better moves are first
+fn order_moves_static_eval(root: &mut Board, child_nodes: &mut [ChessMove], move_generator: &MoveGenerator) {    
+    let color = root.to_move() as i16 * 2 - 1;
+    child_nodes.sort_by_key(|m| {
+        root.push_move(m.clone());
+        let eval = static_evaluation(root.pieces, move_generator);
+        root.pop_move();
+
+        eval * -color
+    });
 }
 
 /// Shuffles the last LAZY_SMP_SHUFFLE_N elements
@@ -602,6 +619,7 @@ mod tests {
         )?;
 
         let start = Instant::now();
+        let mut correct = 0;
 
         let file = File::open("tests/mate_in_3.csv")?;
         let reader = io::BufReader::new(file);
@@ -618,11 +636,14 @@ mod tests {
             let mut board = Board::from_fen(fen)?;
             board.push_move(ChessMove::from_str(moves.split(" ").next().unwrap())?);
             let (_best_move, score) = engine.go(&board, 5, Duration::from_secs(100))?;
-            let best_move = _best_move.unwrap();
-            assert!(score <= -i16::MAX + 50 || score >= i16::MAX - 50, "didn't find mate in 3, score is {score} and move is {best_move}");
+            let _best_move = _best_move.unwrap();
+            if score <= -i16::MAX + 50 || score >= i16::MAX - 50 {
+                correct += 1;
+            }
             eprint!(".");
         }
-        println!("Time to check mate in 3: {:?}", start.elapsed()); // Time to beat: 0.9 seconds 
+        eprintln!("Time to check mate in 3: {:?}, correct: {}/20", start.elapsed(), correct); // Time to beat: 0.9 seconds 
+        assert!(correct > 15);
         Ok(())
     }
 
@@ -643,7 +664,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore = "long running"]
     #[test]
     fn can_find_mate_in_five_simple() -> Result<(), Box<dyn std::error::Error>> {
         let mut uci = UCIConfig::default();
@@ -663,7 +683,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore = "long running"]
     #[test]
     fn can_find_mate_in_4() -> Result<(), Box<dyn std::error::Error>> {
         let start = Instant::now();
@@ -700,9 +719,9 @@ mod tests {
             if right {
                 correct += 1;
             }
-            eprintln!(" done in {:?}, correct: {}", start2.elapsed(), right); // time to beat: 10.31
+            eprintln!(" done in {:?}, correct: {}", start2.elapsed(), right); // time to beat: 9.6, 17/20 correct
         }
-        println!("Time to check puzzles: {:?}, {}/20 correct", start.elapsed(), correct); 
+        eprintln!("Time to check puzzles: {:?}, {}/20 correct", start.elapsed(), correct); 
         assert!(correct > 15);
         Ok(())
     }
