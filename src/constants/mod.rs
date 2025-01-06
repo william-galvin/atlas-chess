@@ -1,5 +1,7 @@
+#[allow(dead_code, reason = "used in binary, compiler warns for library")]
 pub const GIB: usize = 1_073_741_824;
 
+#[allow(dead_code, reason = "used in binary, compiler warns for library")]
 #[derive(Clone)]
 pub struct UCIConfig {
     // Cache size of transposition table in bytes
@@ -49,6 +51,7 @@ pub struct UCIConfig {
 
 }
 
+#[allow(dead_code, reason = "used in binary, compiler warns for library")]
 impl UCIConfig {
     pub fn default() -> Self {
         Self { 

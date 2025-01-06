@@ -54,6 +54,7 @@ pub struct ZobristBoardComponent {
 /// value's checksum.
 /// 
 /// Caller's should wrap with Arc to send between threads.
+#[allow(dead_code, reason = "used in binary, compiler warns for library")]
 pub struct ZobristHashTable {
     size: usize,
     data: UnsafeCell<Box<[ZobristHashTableEntry]>>
@@ -61,6 +62,7 @@ pub struct ZobristHashTable {
 
 unsafe impl Sync for ZobristHashTable {}
 
+#[allow(dead_code, reason = "used in binary, compiler warns for library")]
 #[derive(Default, Clone, Copy)]
 pub struct ZobristHashTableEntry {
     pub z_sum: u16,
@@ -135,6 +137,7 @@ impl ZobristBoardComponent {
     }
 }
 
+#[allow(dead_code, reason = "used in binary, compiler warns for library")]
 impl ZobristHashTable {
     pub fn new(cache_size: usize) -> Arc<Self> {
         let entry_size = size_of::<ZobristHashTableEntry>();
@@ -159,6 +162,7 @@ impl ZobristHashTable {
     }
 }
 
+#[allow(dead_code, reason = "used in binary, compiler warns for library")]
 impl ZobristHashTableEntry {
     pub fn new(z_sum: u16, depth: u8, eval: i16, chess_move: ChessMove) -> Self {
         Self { z_sum, depth, eval, chess_move }
