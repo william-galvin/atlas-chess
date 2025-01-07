@@ -106,7 +106,7 @@ impl Engine {
                     break;
                 }
             }
-            eprintln!("info string ponder search: {}/{}", i, l);
+            println!("info string ponder search: {}/{}", i, l);
         }); 
     }
 
@@ -126,20 +126,20 @@ impl Engine {
 
         if self.uci.own_book {
             if let Some((book_move, eval)) = self.book.get(&strip_en_pass(&board.to_fen())) {
-                eprintln!("info string book hit");
+                println!("info string book hit");
                 return Ok((Some(*book_move), *eval));
             }
         }
 
         if self.uci.tablebase && board.count_pieces() <= 7 {
             if let Some(best_move) = tablebase_lookup(&board) {
-                eprintln!("info string tablebase hit");
+                println!("info string tablebase hit");
                 return Ok((Some(best_move), i16::MAX));
             }
         }
 
         if let Some(best_move) = self.ponder.cache.lock().unwrap().get(&board.to_fen()) {
-            eprintln!("info string ponder hit");
+            println!("info string ponder hit");
             return Ok((Some(best_move.0), best_move.1));
         }
         
@@ -149,7 +149,7 @@ impl Engine {
             &board, color, depth, self.transposition_table.clone(), 
             &self.move_generator, self.nn.clone(), deadline, self.uci.clone()
         ) {
-            eprintln!("info depth {}", depth);
+            println!("info depth {}", depth);
             return Ok(result);
         } else {
             panic!("search didn't finish");
