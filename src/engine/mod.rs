@@ -35,7 +35,8 @@ pub struct Engine {
 
 struct Ponder {
     cache: Arc<Mutex<LRUCache<String, (ChessMove, i16)>>>,
-    deadline: Arc<RwLock<Instant>>
+    deadline: Arc<RwLock<Instant>>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl Engine {
@@ -51,7 +52,8 @@ impl Engine {
         let transposition_table = ZobristHashTable::new(uci.tt_cache_size);
         let ponder = Ponder {
             cache: Arc::from(Mutex::new(LRUCache::new(uci.ponder_cache_size))), 
-            deadline: Arc::from(RwLock::new(Instant::now()))
+            deadline: Arc::from(RwLock::new(Instant::now())),
+            thread: None,
         };
 
         let book = get_book("opening_book.csv")?;
@@ -65,7 +67,7 @@ impl Engine {
     /// Pondering is done async - this is non-blocking. Call `ponder_stop`
     /// before next call to `go`.
     pub fn ponder_start(
-        &self, 
+        &mut self, 
         board: &Board, 
         depth: u8, 
     ) { 
@@ -80,7 +82,7 @@ impl Engine {
         let move_generator = self.move_generator.clone();
         let nn = self.nn.clone();
         let uci = self.uci.clone();
-        thread::spawn(move || {
+        self.ponder.thread = Some(thread::spawn(move || {
             let mut moves = move_generator.moves(&mut board);
             order_moves_nn(&board, &mut moves, &nn).unwrap();
 
@@ -107,13 +109,18 @@ impl Engine {
                 }
             }
             println!("info string ponder search: {}/{}", i, l);
-        }); 
+        })); 
     }
 
     /// Signals thread to stop pondering
-    pub fn ponder_stop(&self) {
-        let mut deadline = self.ponder.deadline.write().unwrap();
-        *deadline = Instant::now();
+    pub fn ponder_stop(&mut self) {
+        {
+            let mut deadline = self.ponder.deadline.write().unwrap();
+            *deadline = Instant::now();
+        }
+        if let Some(handle) = self.ponder.thread.take() {
+            handle.join().expect("can't join thread");
+        }
     }
 
     /// Returns a tuple of (best_move, eval) for a given board
