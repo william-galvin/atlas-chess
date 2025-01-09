@@ -1,9 +1,7 @@
 use std::{
-    cell::UnsafeCell,
     fmt::Debug,
     mem::size_of,
     ops::Index,
-    sync::Arc,
 };
 
 use crate::chess_move::ChessMove;
@@ -43,8 +41,8 @@ struct ZobristLookupTable<U: Uint> {
 pub struct ZobristBoardComponent {
     pub z_key: u64,
     pub z_sum: u16,
-    z64: Arc<ZobristLookupTable<u64>>,
-    z16: Arc<ZobristLookupTable<u16>>,
+    z64: ZobristLookupTable<u64>,
+    z16: ZobristLookupTable<u16>,
 }
 
 /// Thread intentionally unsafe, heap allocated hash table.
@@ -57,7 +55,7 @@ pub struct ZobristBoardComponent {
 #[allow(dead_code, reason = "used in binary, compiler warns for library")]
 pub struct ZobristHashTable {
     size: usize,
-    data: UnsafeCell<Box<[ZobristHashTableEntry]>>
+    data: Box<[ZobristHashTableEntry]>
 }
 
 unsafe impl Sync for ZobristHashTable {}
@@ -93,8 +91,8 @@ impl ZobristBoardComponent {
         let mut z_key = 0;
         let mut z_sum = 0;
 
-        let z64 = Arc::new(ZobristLookupTable::new(0));
-        let z16 = Arc::new(ZobristLookupTable::new(522));
+        let z64 = ZobristLookupTable::new(0);
+        let z16 = ZobristLookupTable::new(522);
 
         for piece in 0..12 {
             for square in 0..64 {
@@ -139,26 +137,21 @@ impl ZobristBoardComponent {
 
 #[allow(dead_code, reason = "used in binary, compiler warns for library")]
 impl ZobristHashTable {
-    pub fn new(cache_size: usize) -> Arc<Self> {
+    pub fn new(cache_size: usize) -> Self {
         let entry_size = size_of::<ZobristHashTableEntry>();
         let n_entries = cache_size / entry_size;
         let data = 
-            UnsafeCell::new(vec![ZobristHashTableEntry::default(); n_entries].into_boxed_slice());
+            vec![ZobristHashTableEntry::default(); n_entries].into_boxed_slice();
 
-        Arc::new(Self { size: n_entries, data })
+        Self { size: n_entries, data }
     }
 
-    pub fn put(&self, key: u64, value: ZobristHashTableEntry) {
-        unsafe {
-            let entry = &mut (*self.data.get())[key as usize % self.size];
-            *entry = value;
-        }
+    pub fn put(&mut self, key: u64, value: ZobristHashTableEntry) {
+        self.data[key as usize % self.size] = value;
     }
 
     pub fn get(&self, key: u64) -> ZobristHashTableEntry {
-        unsafe {
-            (*self.data.get())[key as usize % self.size]
-        }
+        self.data[key as usize % self.size]
     }
 }
 
@@ -212,20 +205,6 @@ mod tests {
         board.pop_move();
         assert!(board.zobrist.eq(&old_zobrist));
 
-        Ok(())
-    }
-
-    #[test]
-    fn hash_table_threadsafe_sort_of() -> Result<(), Box<dyn std::error::Error>> {
-        let table = ZobristHashTable::new(2048);
-        table.put(5, ZobristHashTableEntry::new(6, 7, 8, ChessMove::default()));
-
-        let table_clone = table.clone();
-        let _ = thread::spawn(move || {
-            table_clone.put(5, ZobristHashTableEntry::new(0, 2, 0, ChessMove::default()));
-        }).join();
-
-        assert!(table.get(5).depth == 2);
         Ok(())
     }
 }

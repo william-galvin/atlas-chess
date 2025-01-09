@@ -2,15 +2,12 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::board::{Board, WHITE};
 
 use crate::constants::UCIConfig;
 use crate::liches::tablebase_lookup;
-use crate::lru_cache::LRUCache;
 use crate::static_evaluation::{static_evaluation, QUEEN_VALUE};
 use crate::zobrist::{ZobristHashTableEntry, ZobristHashTable};
 use crate::move_generator::MoveGenerator;
@@ -26,101 +23,25 @@ use rand::thread_rng;
 
 pub struct Engine {
     move_generator: MoveGenerator,
-    transposition_table: Arc<ZobristHashTable>,
-    nn: Arc<Session>,
-    ponder: Ponder,
+    transposition_table: ZobristHashTable,
+    nn: Session,
     uci: UCIConfig,
     book: HashMap<String, (ChessMove, i16)>,
-}
-
-struct Ponder {
-    cache: Arc<Mutex<LRUCache<String, (ChessMove, i16)>>>,
-    deadline: Arc<RwLock<Instant>>,
-    thread: Option<JoinHandle<()>>,
 }
 
 impl Engine {
     pub fn new(move_generator: MoveGenerator, uci: UCIConfig, ) -> Result<Self, Box<dyn std::error::Error>> {
         let weights_path = get_file("nn.quant.onnx");
-        let nn = Arc::from(
+        let nn = 
             Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_intra_threads(uci.n_onnx_threads)?
-                .commit_from_file(weights_path.to_str().unwrap())?
-            );
+                .commit_from_file(weights_path.to_str().unwrap())?;
 
         let transposition_table = ZobristHashTable::new(uci.tt_cache_size);
-        let ponder = Ponder {
-            cache: Arc::from(Mutex::new(LRUCache::new(uci.ponder_cache_size))), 
-            deadline: Arc::from(RwLock::new(Instant::now())),
-            thread: None,
-        };
-
         let book = get_book("opening_book.csv")?;
 
-        Ok(Self{ move_generator, transposition_table, nn, ponder, uci, book })
-    }
-
-    /// Starts pondering a given board.
-    /// The given board should be the state of the game directly after the move
-    /// returned from `go` has been played.
-    /// Pondering is done async - this is non-blocking. Call `ponder_stop`
-    /// before next call to `go`.
-    pub fn ponder_start(
-        &mut self, 
-        board: &Board, 
-        depth: u8, 
-    ) { 
-        let mut deadline = self.ponder.deadline.write().unwrap();
-        *deadline = Instant::now() + Duration::from_secs(3600);
-        
-        let thread_deadline = self.ponder.deadline.clone();
-        let thread_cache = self.ponder.cache.clone();
-
-        let mut board = board.clone();
-        let transposition_table = self.transposition_table.clone();
-        let move_generator = self.move_generator.clone();
-        let nn = self.nn.clone();
-        let uci = self.uci.clone();
-        self.ponder.thread = Some(thread::spawn(move || {
-            let mut moves = move_generator.moves(&mut board);
-            order_moves_nn(&board, &mut moves, &nn).unwrap();
-
-            let mut i = 0;
-            let l = moves.len();
-            for chess_move in moves {
-                board.push_move(chess_move);
-                let child_fen = board.to_fen();
-
-                let color = board.to_move() as i16 * 2 - 1;
-                let result = lazy_smp_iddfs(
-                    &board, color, depth, transposition_table.clone(), 
-                    &move_generator, nn.clone(), thread_deadline.clone(), uci.clone()
-                );
-
-                board.pop_move();
-
-                if let Ok((_depth, best_move)) = result {
-                    let mut cache = thread_cache.lock().unwrap();
-                    cache.put(child_fen, (best_move.0.unwrap(), best_move.1));
-                    i += 1;
-                } else {
-                    break;
-                }
-            }
-            println!("info string ponder search: {}/{}", i, l);
-        })); 
-    }
-
-    /// Signals thread to stop pondering
-    pub fn ponder_stop(&mut self) {
-        {
-            let mut deadline = self.ponder.deadline.write().unwrap();
-            *deadline = Instant::now();
-        }
-        if let Some(handle) = self.ponder.thread.take() {
-            handle.join().expect("can't join thread");
-        }
+        Ok(Self{ move_generator, transposition_table, nn, uci, book })
     }
 
     /// Returns a tuple of (best_move, eval) for a given board
@@ -144,17 +65,12 @@ impl Engine {
                 return Ok((Some(best_move), i16::MAX));
             }
         }
-
-        if let Some(best_move) = self.ponder.cache.lock().unwrap().get(&board.to_fen()) {
-            println!("info string ponder hit");
-            return Ok((Some(best_move.0), best_move.1));
-        }
         
-        let deadline = Arc::from(RwLock::new(Instant::now() + search_time));
+        let deadline = Instant::now() + search_time;
         let color = board.to_move() as i16 * 2 - 1;
-        if let Ok((depth, result)) = lazy_smp_iddfs(
-            &board, color, depth, self.transposition_table.clone(), 
-            &self.move_generator, self.nn.clone(), deadline, self.uci.clone()
+        if let Ok((depth, result)) = iddfs(
+            &board, color, depth, &mut self.transposition_table, 
+            &self.move_generator, &self.nn, &deadline, &self.uci
         ) {
             println!("info depth {}", depth);
             return Ok(result);
@@ -164,82 +80,35 @@ impl Engine {
     }
 }
 
-/// Spawn a worker to explore root at depth -- does not return value
-fn async_negamax(
-    root: &mut Board, 
-    color: i16, 
-    depth: u8, 
-    transposition_table: Arc<ZobristHashTable>,
-    move_generator: &MoveGenerator,
-    nn: Arc<Session>,
-    results: Arc<Mutex<Vec<(u8, (Option<ChessMove>, i16))>>>,
-    deadline: Arc<RwLock<Instant>>, 
-    uci: UCIConfig,
-) -> JoinHandle<()> {
-    let mut root = root.clone();
-    let move_generator = move_generator.clone();
-    let tt = transposition_table.clone();
-    thread::spawn(move || {
-        let result = negamax(
-            &mut root, depth, depth, i16::MIN + 1, i16::MAX - 1, color,
-            tt, &move_generator, &nn, deadline, uci
-        );
-        if let Ok(res) = result {
-            let mut results = results.lock().unwrap();
-            results.push((depth, res));
-        }
-    })
-}
-
 /// See https://www.chessprogramming.org/Iterative_Deepening
-/// and https://www.chessprogramming.org/Lazy_SMP
-fn lazy_smp_iddfs(
+fn iddfs(
     root: &Board, 
     color: i16, 
     depth: u8,
-    transposition_table: Arc<ZobristHashTable>,
+    transposition_table: &mut ZobristHashTable,
     move_generator: &MoveGenerator,
-    nn: Arc<Session>,
-    deadline: Arc<RwLock<Instant>>, 
-    uci: UCIConfig,
+    nn: &Session,
+    deadline: &Instant, 
+    uci: &UCIConfig,
 ) -> Result<(u8, (Option<ChessMove>, i16)), Box<dyn std::error::Error>> {
 
     let root = &mut root.clone();
-
-    let mut threads = vec![];
-    let results = Arc::from(Mutex::new(vec![]));
+    let mut result = None;
     
-    for d in 2..depth {
-        threads.push(
-            async_negamax(root, color, d, transposition_table.clone(),
-            &move_generator.clone(), nn.clone(), results.clone(), deadline.clone(), uci.clone()
-        ));
+    for d in 2..=depth {
+        let Ok(negamax_result) = negamax(
+            root, d, depth, i16::MIN + 1, i16::MAX - 1, color,
+            transposition_table, move_generator, &nn, &deadline, &uci
+        ) else {
+            break;
+        };
+        result = Some((d, negamax_result));
     }
 
-    for _ in 0..uci.lazy_smp_parallel_root {
-        threads.push(
-            async_negamax(root, color, depth, transposition_table.clone(),
-            &move_generator.clone(), nn.clone(), results.clone(), deadline.clone(), uci.clone()
-        ));
-    }
-
-    let result = negamax(
-        root, depth, depth, i16::MIN + 1, i16::MAX - 1, color,
-        transposition_table.clone(), move_generator, &nn, deadline.clone(), uci.clone()
-    );
-
-    threads.into_iter().for_each(|t| { let _  = t.join(); } );
-
-    let mut results = results.lock().unwrap();
-    if let Ok(res) = result {
-        results.push((depth, res));
-    }
-    if results.is_empty() {
+    let Some(best_move) = result else {
         return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "search timed out")));
-    }
-
-    results.sort_by_key(|r| r.0);
-    Ok(results.pop().unwrap())
+    };
+    Ok(best_move)
 }
 
 
@@ -252,11 +121,11 @@ fn negamax(
     mut alpha: i16,
     beta: i16,
     color: i16,
-    transposition_table: Arc<ZobristHashTable>,
+    transposition_table: &mut ZobristHashTable,
     move_generator: &MoveGenerator,
     nn: &Session,
-    deadline: Arc<RwLock<Instant>>, 
-    uci: UCIConfig,
+    deadline: &Instant, 
+    uci: &UCIConfig,
 ) -> Result<(Option<ChessMove>, i16), Box<dyn std::error::Error>> {
     
     let z_key = root.zobrist.z_key;
@@ -314,10 +183,8 @@ fn negamax(
             child_nodes.insert(0, pv);
         }
     }
-
-    shuffle_tail(&mut child_nodes, uci.lazy_smp_shuffle_n);
     
-    if Instant::now() > *deadline.read().unwrap() {
+    if Instant::now() > *deadline {
         return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "search timed out")));
     }
 
@@ -326,7 +193,7 @@ fn negamax(
         root.push_move(child);
         let (_child_move, child_value) = negamax(
             root, depth - 1, max_depth, -beta, -alpha, -color,
-            transposition_table.clone(), move_generator, nn, deadline.clone(), uci.clone()
+            transposition_table, move_generator, nn, deadline, uci
         )?;
         root.pop_move();
 
