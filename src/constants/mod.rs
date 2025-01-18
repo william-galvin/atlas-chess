@@ -13,16 +13,6 @@ pub struct UCIConfig {
     // Depth (root=0) up to which to use deep move ordering
     pub deep_move_ordering_depth: u8, 
 
-    // How many moves to not shuffle at beginning of moves vec
-    // In general, lazy smp works better with different threads searching
-    // different move orders...but we have a nice NN that picks what it thinks
-    // are the best moves to search first. So a compromise is to let the NN
-    // pick the first N and shuffle the rest.
-    pub lazy_smp_shuffle_n: usize,
-
-    // How many parallel threads search root
-    pub lazy_smp_parallel_root: usize, 
-
     // Time allocated for each search - sort of
     // Actually the time each negamax instance has before terminating
     pub search_time: std::time::Duration,
@@ -57,9 +47,7 @@ impl UCIConfig {
         Self { 
             tt_cache_size: GIB, 
             n_onnx_threads: 4, 
-            deep_move_ordering_depth: 0, 
-            lazy_smp_shuffle_n: 20, 
-            lazy_smp_parallel_root: 2, 
+            deep_move_ordering_depth: 0,
             search_time: std::time::Duration::from_secs(3), 
             search_depth: 7, 
             ponder_cache_size: 1000, 
@@ -67,7 +55,7 @@ impl UCIConfig {
             tablebase: true,
             qsearch_depth: 4,
             static_forward_pruning_depth: 3,
-            static_forward_pruning_branch: 10,
+            static_forward_pruning_branch: 12,
         }
     }
 
@@ -106,14 +94,6 @@ impl UCIConfig {
                 self.deep_move_ordering_depth = value.parse()?;
                 Ok(false)
             },
-            "lazy_smp_shuffle_n" => {
-                self.lazy_smp_shuffle_n = value.parse()?;
-                Ok(false)
-            },
-            "lazy_smp_parallel_root" => {
-                self.lazy_smp_parallel_root = value.parse()?;
-                Ok(false)
-            }
             "search_time" => {
                 self.search_time = std::time::Duration::from_secs(value.parse()?);
                 Ok(false)

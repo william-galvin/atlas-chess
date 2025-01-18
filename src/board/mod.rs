@@ -1,9 +1,12 @@
 use std::fmt;
 use crate::chess_move::ChessMove;
+use crate::move_generator::MoveGenerator;
+use crate::nnue::Nnue;
 use crate::zobrist::ZobristBoardComponent;
 use std::ops::Range;
 use std::panic;
 
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 const MOVE_MASK: u64 = 1;
@@ -23,8 +26,10 @@ pub struct Board {
     pub pieces: [u64; 12],
     pub info: u64,
     pub zobrist: ZobristBoardComponent,
+    pub nnue: Option<Nnue>,
     pieces_stacks: [Vec<u64>; 12],
     move_stack: Vec<MoveRecord>,
+    move_generator: MoveGenerator,
 }
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
@@ -85,7 +90,9 @@ impl Board {
             info,
             pieces_stacks: Default::default(),
             move_stack: Vec::new(),
-            zobrist: ZobristBoardComponent::new(&pieces, info)
+            zobrist: ZobristBoardComponent::new(&pieces, info),
+            nnue: None,
+            move_generator: MoveGenerator::new(),
         })
     }
 
@@ -215,6 +222,9 @@ impl Board {
         let from = chess_move.from();
         let to = chess_move.to();
 
+        let wk = self.pieces[KING].trailing_zeros() as usize;
+        let bk = self.pieces[KING + 6].trailing_zeros() as usize;
+
         let mut blockers = 0u64;
         for i in 0..12 {
             blockers |= self.pieces[i];
@@ -266,6 +276,10 @@ impl Board {
         self.pieces[move_type] = Self::move_bit(self.pieces[move_type], from, to);
         self.zobrist.xor(move_type, from);
         self.zobrist.xor(move_type, to);
+        if let Some(nnue) = self.nnue.as_mut() {
+            nnue.sub(wk, bk, move_type, from as usize);
+            nnue.add(wk, bk, move_type, to as usize);
+        }
 
         if en_pass != u16::MAX {
             let (capture_type, offset) = if self.info & MOVE_MASK == WHITE {
@@ -275,9 +289,15 @@ impl Board {
             };
             self.pieces[capture_type] = Self::delete_bit(self.pieces[capture_type], offset);
             self.zobrist.xor(capture_type, offset);
+            if let Some(nnue) = self.nnue.as_mut() {
+                nnue.sub(wk, bk, capture_type, offset as usize);
+            }
         } else if capture_type != usize::MAX {
             self.pieces[capture_type] = Self::delete_bit(self.pieces[capture_type], to);
             self.zobrist.xor(capture_type, to);
+            if let Some(nnue) = self.nnue.as_mut() {
+                nnue.sub(wk, bk, capture_type, to as usize);
+            }
         }
 
         if castle_type != usize::MAX {
@@ -294,6 +314,10 @@ impl Board {
             self.pieces[castle_type] = Self::move_bit(self.pieces[castle_type], src_offset, dst_offset);
             self.zobrist.xor(castle_type, src_offset);
             self.zobrist.xor(castle_type, dst_offset);
+            if let Some(nnue) = self.nnue.as_mut() {
+                nnue.sub(wk, bk, castle_type, src_offset as usize);
+                nnue.add(wk, bk, castle_type, dst_offset as usize);
+            }
         }
 
         if promotion_type != usize::MAX {
@@ -301,6 +325,16 @@ impl Board {
             self.pieces[promotion_type] |= 1 << to;
             self.zobrist.xor(move_type, to);
             self.zobrist.xor(promotion_type, to);
+            if let Some(nnue) = self.nnue.as_mut() {
+                nnue.sub(wk, bk, move_type, to as usize);
+                nnue.add(wk, bk, promotion_type, to as usize);
+            }
+        }
+
+        if move_type == KING || move_type == KING + 6 {
+            if let Some(nnue) = self.nnue.as_mut() {
+                nnue.calculate_hidden(&self.pieces);
+            }
         }
 
         for i in 0..8 {
@@ -375,17 +409,43 @@ impl Board {
         }
         self.info = move_record.info;
 
+        let wk = self.pieces[KING].trailing_zeros() as usize;
+        let bk = self.pieces[KING + 6].trailing_zeros() as usize;
+
+        let mut king_move = false;
+
         for piece_type in 0..12 {
             if move_record.moved >> piece_type & 1 == 1 {
                 let old = self.pieces_stacks[piece_type].pop().unwrap();
                 let mut diff = self.pieces[piece_type] ^ old;
                 
                 while diff.count_ones() > 0 {
-                    self.zobrist.xor(piece_type, diff.trailing_zeros() as u16);
-                    diff &= !(1 << diff.trailing_zeros());
+                    let trailing_zeros = diff.trailing_zeros();
+
+                    self.zobrist.xor(piece_type, trailing_zeros as u16);
+
+                    if let Some(nnue) = self.nnue.as_mut() {
+                        if piece_type == KING || piece_type == KING + 6 {
+                            king_move = true;
+                        }
+                        if !king_move {
+                            if old & 1 << trailing_zeros != 0 { // case: old board had one, new does not
+                                nnue.add(wk, bk, piece_type, trailing_zeros as usize);
+                            } else {
+                                nnue.sub(wk, bk, piece_type, trailing_zeros as usize);
+                            }
+                        }
+                    }
+
+                    diff &= !(1 << trailing_zeros);
                 }
                 
                 self.pieces[piece_type] = old;
+            }
+        }
+        if king_move {
+            if let Some(nnue) = self.nnue.as_mut() {
+                nnue.calculate_hidden(&self.pieces);
             }
         }
     }
@@ -493,6 +553,16 @@ impl Board {
             result |= p;
         }
         result
+    }
+
+    /// Generate legal moves - wrapper with move generator
+    pub fn moves(&self) -> Vec<ChessMove> {
+        self.move_generator.moves(&self)
+    }
+
+    /// True if board in check - wrapper with move generator
+    pub fn check(&self) -> bool {
+        self.move_generator.check(&self)
     }
 }
 
@@ -607,6 +677,25 @@ impl Board {
 
     pub fn copy(&self) -> PyResult<Self> {
         Ok(self.clone())
+    }
+
+    /// Runs forward pass on nnue.
+    /// Pre: nnue has been enabled
+    pub fn forward(&self) -> PyResult<f32> {
+        let Some(nnue) = self.nnue.as_ref() else {
+            return Err(PyErr::new::<PyValueError, _>("nnue not initialzed"));
+        };
+        Ok(nnue.forward(self.to_move() == WHITE))
+    }
+
+    pub fn enable_nnue(&mut self, mut nnue: Nnue) {
+        nnue.calculate_hidden(&self.pieces);
+        self.nnue = Some(nnue);
+    }
+
+    /// Generate legal moves - wrapper with move generator
+    pub fn get_moves(&self) -> Vec<String> {
+        self.move_generator.moves(&self).iter().map(|m| m.to_string()).collect()
     }
 }
     
@@ -771,16 +860,19 @@ mod tests {
     #[test]
     fn test_push_pop_fuzzy() -> io::Result<()> {
         let entries = read_dir("tests/random_games")?;
+        let nnue = Nnue::random();
         for entry in entries {
             let entry = entry?;
             let file = File::open(entry.path())?;
             let reader = io::BufReader::new(file);
             let mut board = Board::new();
+            board.enable_nnue(nnue.clone());
             let mut lines = reader.lines();
             while let Some(line1) = lines.next() {
                 if let Some(line2) = lines.next() {
                     let old_fen = board.to_fen();
                     let old_zobrist = board.zobrist.clone();
+                    let old_nnue = board.nnue.clone().unwrap().forward(board.to_move() == WHITE);
 
                     let chess_move = line1?;
                     let target_fen = line2?;
@@ -790,6 +882,9 @@ mod tests {
                     board.pop_move();
                     assert!(board.fen_eq(&old_fen));
                     assert!(board.zobrist.eq(&old_zobrist), "played {chess_move} from {old_fen} and zobrist hashes didn't align on pop");
+
+                    let new_nnue = board.nnue.clone().unwrap().forward(board.to_move() == WHITE);
+                    assert!((old_nnue - new_nnue).abs() < 0.0001);
 
                     board.push_move(ChessMove::from_str(&chess_move).unwrap());
                 }

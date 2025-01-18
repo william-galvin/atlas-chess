@@ -1,6 +1,6 @@
 [package]
 name = "atlas-chess"
-version = "0.0.10"
+version = "0.0.11"
 edition = "2021"
 build = "build.rs"
 
@@ -13,6 +13,7 @@ pyo3 = { version = "0.23.3" }
 ort = { version = "2.0.0-rc.9" }
 ndarray = { version = "0.16.1" }
 rand = { version = "0.8.5" }
+numpy ={ version = "0.23.0" }
 
 [features]
 extension-module = ["pyo3/extension-module"]

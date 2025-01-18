@@ -442,7 +442,7 @@ fn material_eval(pieces: [u64; 12]) -> i16 {
 fn knight_pawn_interacton(pieces: [u64; 12]) -> i16 {
     let n_pawns = (pieces[PAWN] | pieces[PAWN + 6]).count_ones();
 
-    (pieces[KNIGHT].count_ones() - pieces[KNIGHT + 6].count_ones()) as i16 * 
+    (pieces[KNIGHT].count_ones() as i16 - pieces[KNIGHT + 6].count_ones() as i16) * 
     (n_pawns as i16 - 8) * KNIGHT_PAWN_INTERACTION
 }
 

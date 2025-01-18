@@ -7,6 +7,7 @@ mod constants;
 mod lru_cache;
 mod liches;
 mod static_evaluation;
+mod nnue;
 
 use std::io::{self, BufRead, Write};
 use std::fs::File;
@@ -106,13 +107,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             },
             "go" => {
-                game_manager.engine.ponder_stop();
                 let best_move = 
                     game_manager.engine.go(&game_manager.board, game_manager.uci.search_depth, game_manager.uci.search_time)?;
                 println!("info score {}", format_score_info(best_move.1));
                 println!("bestmove {:#}", best_move.0.unwrap());
                 game_manager.board.push_move(best_move.0.unwrap());
-                game_manager.engine.ponder_start(&game_manager.board, game_manager.uci.search_depth);
                 game_manager.board.pop_move();
             }
             _ => {
