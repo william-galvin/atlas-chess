@@ -7,6 +7,7 @@ mod constants;
 mod lru_cache;
 mod liches;
 mod static_evaluation;
+mod nnue;
 
 use std::io::{self, BufRead, Write};
 use std::fs::File;

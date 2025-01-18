@@ -192,7 +192,7 @@ const ROOK_CROSS: [u64; 64] = [
 ];
 
 #[pyclass]
-#[derive(Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct MoveGenerator {
     sliding_moves: Vec<Vec<u64>>
 }
