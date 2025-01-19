@@ -2,7 +2,7 @@
 // https://github.com/asdfjkl/neural_network_chess/releases/download/v1.6/neural_networks_chess.pdf
 // and https://github.com/official-stockfish/nnue-pytorch/blob/master/docs/nnue.md
 
-use ndarray::{concatenate, Array1, Array2, Axis, ShapeBuilder};
+use ndarray::{concatenate, Array1, Array2, Axis};
 use numpy::{PyArray, PyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
@@ -29,7 +29,7 @@ const FLIP: [usize; 64] = [
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct Nnue {
-    w256: Arc<Array2<f32>>,  // 256 x 40,960
+    w256: Arc<Array2<f32>>,  // (256 x 40,960).T
     w64: Arc<Array2<f32>>,   // 64 x 256
     w8: Arc<Array2<f32>>,    // 8 x 64(2)
     w1: Arc<Array2<f32>>,    // 1 x 8
@@ -61,9 +61,20 @@ impl Nnue {
             panic!("forward pass on dirty hidden layer");
         }
 
-        let (us, them) = if white { (&self.hidden_white, &self.hidden_black) } else { (&self.hidden_black, &self.hidden_white) };
-        let mut x_us = self.w64.dot(us);
-        let mut x_them = self.w64.dot(them);
+        let (mut x_us, mut x_them) = if white {
+            (self.hidden_white.clone(), self.hidden_black.clone())
+        } else { 
+            (self.hidden_black.clone(), self.hidden_white.clone()) 
+        };
+
+        layer_norm(&mut x_us);
+        layer_norm(&mut x_them);
+
+        leaky_relu(&mut x_us);
+        leaky_relu(&mut x_them);
+        
+        x_us = self.w64.dot(&x_us);
+        x_them = self.w64.dot(&x_them);
 
         layer_norm(&mut x_us);
         layer_norm(&mut x_them);
@@ -82,7 +93,7 @@ impl Nnue {
     #[new]
     pub fn zeros() -> Self {
         Self {
-            w256: Arc::new(to_fortran_style(Array2::zeros((256, 40_960)))),
+            w256: Arc::new(transposed(Array2::zeros((256, 40_960)))),
             w64: Arc::new(Array2::zeros((64, 256))),
             w8: Arc::new(Array2::zeros((8, 64 * 2))),
             w1: Arc::new(Array2::zeros((1, 8))),
@@ -97,7 +108,7 @@ impl Nnue {
         let mut rng = thread_rng();
         
         Self {
-            w256: Arc::new(to_fortran_style(Array2::from_shape_fn((256, 40_960), |_| rng.gen_range(-1.0..1.0)))),
+            w256: Arc::new(transposed(Array2::from_shape_fn((256, 40_960), |_| rng.gen_range(-1.0..1.0)))),
             w64: Arc::new(Array2::from_shape_fn((64, 256), |_| rng.gen_range(-1.0..1.0))),
             w8: Arc::new(Array2::from_shape_fn((8, 64 * 2), |_| rng.gen_range(-1.0..1.0))),
             w1: Arc::new(Array2::from_shape_fn((1, 8), |_| rng.gen_range(-1.0..1.0))),
@@ -108,7 +119,7 @@ impl Nnue {
     }
 
     pub fn set_weights(&mut self, w256: PyReadonlyArray2<f32>, w64: PyReadonlyArray2<f32>, w8: PyReadonlyArray2<f32>, w1: PyReadonlyArray2<f32>) {
-        self.w256 = Arc::new(to_fortran_style(w256.as_array().to_owned()));
+        self.w256 = Arc::new(transposed(w256.as_array().to_owned()));
         self.w64 = Arc::new(w64.as_array().to_owned());
         self.w8 = Arc::new(w8.as_array().to_owned());
         self.w1 = Arc::new(w1.as_array().to_owned());
@@ -135,7 +146,7 @@ impl Nnue {
         let Some(idx) = get_idx_white(white_king, piece, piece_pos) else {
             return;
         };
-        let col = self.w256.column(idx);
+        let col = self.w256.row(idx);
         self.hidden_white += &col;
     }
 
@@ -143,7 +154,7 @@ impl Nnue {
         let Some(idx) = get_idx_white(white_king, piece, piece_pos) else {
             return;
         };
-        let col = self.w256.column(idx);
+        let col = self.w256.row(idx);
         self.hidden_white -= &col;
     }
 
@@ -151,7 +162,7 @@ impl Nnue {
         let Some(idx) = get_idx_black(black_king, piece, piece_pos) else {
             return;
         };
-        let col = self.w256.column(idx);
+        let col = self.w256.row(idx);
         self.hidden_black += &col;
     }
 
@@ -159,7 +170,7 @@ impl Nnue {
         let Some(idx) = get_idx_black(black_king, piece, piece_pos) else {
             return;
         };
-        let col = self.w256.column(idx);
+        let col = self.w256.row(idx);
         self.hidden_black -= &col;
     }
 
@@ -218,7 +229,7 @@ impl Nnue {
 }
 
 pub fn leaky_relu(x: &mut Array1<f32>) {
-    x.mapv_inplace(|a| (0.1 * a).max(a));
+    x.mapv_inplace(|a| (0.05 * a).max(a));
 }
 
 pub fn layer_norm(x: &mut Array1<f32>) {
@@ -260,16 +271,11 @@ pub fn get_idx_white(white_king: usize, mut piece: usize, piece_pos: usize) -> O
     Some(white_king * (64 * 10) + piece * 64 + piece_pos)
 }
 
-/// Convert the array to a Fortran-style layout (column-major order)
-fn to_fortran_style(arr: Array2<f32>) -> Array2<f32> {
-    let shape = arr.raw_dim();
-    let fortran_array = Array2::from_shape_vec(
-        shape.f(), 
-        arr.into_raw_vec_and_offset().0,
-    )
-    .expect("Failed to reshape array into Fortran-style layout");
-
-    fortran_array
+fn transposed(arr: Array2<f32>) -> Array2<f32> {
+    let a_t = arr.t();
+    let mut a_t_owned = Array2::zeros(a_t.raw_dim());
+    a_t_owned.assign(&a_t);
+    a_t_owned
 }
 
 
@@ -292,7 +298,7 @@ mod tests {
 
         assert_eq!(3.0, arr[0]);
         assert_eq!(0.5, arr[1]);
-        assert_eq!(-0.1, arr[2]);
+        assert_eq!(-0.05, arr[2]);
     }
 
     #[test]

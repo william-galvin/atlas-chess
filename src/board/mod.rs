@@ -697,6 +697,25 @@ impl Board {
     pub fn get_moves(&self) -> Vec<String> {
         self.move_generator.moves(&self).iter().map(|m| m.to_string()).collect()
     }
+
+    pub fn winner(&self) -> Option<String> {
+        let moves = self.get_moves();
+        if moves.is_empty() {
+            if self.check() {
+                return Some(
+                    if self.to_move() == WHITE {
+                        "black"
+                    } else {
+                        "white"
+                    }.to_string()
+                );
+            } else {
+                return Some("tie".to_string());
+            }
+        } else {
+            return None;
+        }
+    }
 }
     
 impl fmt::Display for Board {
