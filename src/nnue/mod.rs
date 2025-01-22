@@ -342,6 +342,35 @@ mod tests {
     }
 
     #[test]
+    fn test_all_nnue_idxs_unique() {
+        let mut arr = vec![0; 40_960];
+        let mut arr_b = vec![0; 40_960];
+        for k in 0..64 {
+            for s in 0..64 {
+                if k == s {
+                    continue;
+                }
+                for p in 0..11 {
+                    if p == 5 {
+                        continue;
+                    }
+                    let idx = get_idx_white(k, p, s).unwrap();
+                    arr[idx] += 1;
+
+                    let idx_b = get_idx_black(k, p, s).unwrap();
+                    arr_b[idx_b] += 1;
+                }
+            }
+        }
+        for i in arr {
+            assert!(i <= 1);
+        }
+        for i in arr_b {
+            assert!(i <= 1);
+        }
+    }
+
+    #[test]
     fn test_perft6_nnue() {
         let mg = MoveGenerator::new();
         let nnue = Nnue::random();

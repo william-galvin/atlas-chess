@@ -165,6 +165,9 @@ impl MctsNode {
             }
         }
 
+        if max_uct_edge.is_none() {
+            return;
+        }
         let edge = *max_uct_edge.unwrap();
         board.push_move(mcts.edges[edge].chess_move);
 

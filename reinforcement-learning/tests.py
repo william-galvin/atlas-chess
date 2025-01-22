@@ -32,8 +32,12 @@ def test_forward_passes_match():
     )
     b.enable_nnue(n)
 
-    rs = b.forward()
-    features = torch.from_numpy(Nnue.features(b)).reshape(-1, 40_960 * 2)
+    b2 = Board("7r/4Nk2/r2p1b2/7P/P1p1P2P/3q4/b1N5/4KR2 w - - 6 63")
+    b2.enable_nnue(n)
+
+    rs = [b.forward(), b2.forward()]
+    features = torch.tensor([Nnue.features(b), Nnue.features(b2)]).reshape(-1, 40_960 * 2)
     py = py_nnue.forward(features)
 
-    assert abs(rs-py) < 1e-4
+    assert abs(rs[0]-py[0]) < 1e-4
+    assert abs(rs[1]-py[1]) < 1e-4
