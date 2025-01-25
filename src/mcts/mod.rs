@@ -32,8 +32,8 @@ struct MctsNode {
 impl Mcts {
     pub fn new(c: f32, to_move: u64) -> Self {
         Self {
-            nodes: vec![],
-            edges: vec![],
+            nodes: Vec::with_capacity(1_000),
+            edges: Vec::with_capacity(1_000),
             c,
             to_move,
         }

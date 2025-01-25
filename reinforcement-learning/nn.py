@@ -5,11 +5,14 @@ import scipy.stats as stats
 import torch
 import numpy as np
 import gc
+import time
 from tqdm import tqdm
 from atlas_chess import mcts_search, Nnue, Board
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
-import torch.multiprocessing
-torch.multiprocessing.set_sharing_strategy('file_system')
+# import torch.multiprocessing
+# torch.multiprocessing.set_sharing_strategy('file_system')
 
 torch.set_default_dtype(torch.float32) 
 
@@ -67,17 +70,39 @@ class MCTS(torch.nn.Module):
 
 
 class InfiniteGamesDataset(torch.utils.data.IterableDataset):
-    def __init__(self, nn):
+    def __init__(self, nn, workers=None):
         self.nn = nn
-        self.n_games = 1
-        self.n_ties = 0
         self.n_positions = 0
         self.pgn = ""
 
-    def __iter__(self):
+        self.workers = workers or os.cpu_count() // 2
+        self.queue = torch.multiprocessing.Manager().Queue()
+        self.stats = torch.multiprocessing.Manager().dict()
+        self.stats["n_games"] = 0
+        self.stats["n_ties"] = 0
+        pool = torch.multiprocessing.Pool(processes=self.workers)
+
+        print(f"made pool with {self.workers} workers")
+        for worker in range(self.workers):
+            pool.apply_async(
+                InfiniteGamesDataset.generate, 
+                (self.nn, self.queue, self.workers, self.stats)
+            )
+
+    # def __del__(self):
+    #     self.pool.terminate()
+    #     self.pool.join()
+
+    def generate(nn, queue, workers, statistics):
+        torch.set_num_threads(1)
         while True:
+            if queue.qsize() > workers * 300:
+                time.sleep(1)
+                continue
+
             board = Board()
-            self.nn.nnue.update_weights(board)
+            nn.nnue.update_weights(board)
+            
             try:
                 game = play_game(
                     board, 
@@ -85,10 +110,11 @@ class InfiniteGamesDataset(torch.utils.data.IterableDataset):
                     max_moves=300
                 )
 
-                self.n_games += 1
-                self.n_ties += abs(game[0][-1])
+                statistics["n_games"] += 1
+                statistics["n_ties"] += abs(game[0][-1])
+                statistics["last_pgn"] = pgn(game)
+
                 for (position, moves, chosen, winner) in game:
-                    self.n_positions += 1
                     board = Board(position)
                     X = torch.tensor(Nnue.features(board).reshape(1, 40_960 * 2))
                     Y = torch.tensor([winner], dtype=torch.float32)
@@ -97,14 +123,33 @@ class InfiniteGamesDataset(torch.utils.data.IterableDataset):
                         X = torch.cat([X, torch.tensor(Nnue.features(board).reshape(1, 40_960 * 2))], dim=0)
                         Y = torch.cat([Y, torch.tensor([prob], dtype=torch.float32)], dim=0)
                         board.pop()
-                    yield X, Y
-                
-                self.pgn = pgn(game)
+                    queue.put((X, Y))
 
             except Exception as e:
                 print("[WARNING] Game failed to complete: ", str(e))
                 pass
-    
+
+
+    def __iter__(self):
+        while True:
+            yield self.queue.get()
+            # game, pgn = self.queue.get()
+            # self.n_games += 1
+            # self.pgn = pgn
+
+            # self.n_ties += abs(game[0][-1])
+            # for (position, moves, chosen, winner) in game:
+            #     self.n_positions += 1
+            #     board = Board(position)
+            #     X = torch.tensor(Nnue.features(board).reshape(1, 40_960 * 2))
+            #     Y = torch.tensor([winner], dtype=torch.float32)
+            #     for move, prob in moves:
+            #         board.push(move)
+            #         X = torch.cat([X, torch.tensor(Nnue.features(board).reshape(1, 40_960 * 2))], dim=0)
+            #         Y = torch.cat([Y, torch.tensor([prob], dtype=torch.float32)], dim=0)
+            #         board.pop()
+            #     yield X, Y
+                
 leaky_relu = lambda x: torch.max(0.05 * x, x)
 
 def layer_norm(x: torch.Tensor):
@@ -226,16 +271,16 @@ def main():
         os.remove("metrics/metrics.json")
 
     if torch.backends.mps.is_available():
-        device = torch.device("mps")
+        device = torch.device("cpu")
     elif torch.cuda.is_available():
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
 
     print(f"*** device is {device} ***")
-    torch.set_default_device(device)
 
     nn = MCTS()
+    nn.share_memory()
     torch.compile(nn)
 
     total_params = sum(p.numel() for p in nn.parameters() if p.requires_grad)
@@ -246,19 +291,20 @@ def main():
 
     loss_fn = torch.nn.MSELoss()
     optimizer = torch.optim.AdamW(nn.parameters(), lr=0.00005, weight_decay=0.025)
-
+    
+    torch.multiprocessing.set_start_method("spawn")
     dataset = InfiniteGamesDataset(nn)
+
     print("Num CPUs found:", os.cpu_count())
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        num_workers=8,
-        batch_size=8,
+        num_workers=2,
+        batch_size=64,
         collate_fn=batch_collate,
-        multiprocessing_context='fork' if device == torch.device("mps") else None
-        # num_workers=os.cpu_count(),
     )
 
     for (X, Y) in tqdm(dataloader):
+        X, Y = X.to(device), Y.to(device)
         y_hat = nn(X)
 
         Y = Y.reshape(-1)
@@ -268,18 +314,18 @@ def main():
         loss.backward()
         optimizer.step()
 
-        if dataset.n_games % 100 == 0:
-            record_metrics({"loss": loss.item(), "not-ties": round(1 - (dataset.n_ties / dataset.n_games), 3)})
-            if dataset.n_games % 1000 == 900:
+        if dataset.stats["n_games"] % 100 == 0:
+            record_metrics({"loss": loss.item(), "not-ties": round(1 - (dataset.stats["n_ties"] / dataset.stats["n_games"]), 3)})
+            if dataset.stats["n_games"] % 1000 == 900:
                 record_metrics({"stockfish_correlation": get_stockfish_correlation(nn)})
 
-            if dataset.n_games % 2000 == 0:
+            if dataset.stats["n_games"] % 2000 == 0:
                 torch.save(nn.state_dict(), "nn.checkpoint")
         
-        if dataset.n_games % 20 == 0:
+        if dataset.stats["n_games"] % 20 == 0:
             print()
             print(dataset.pgn)
-            print(f"game number: {dataset.n_games}, % of games not ties: {round(1 - (dataset.n_ties / dataset.n_games), 3)}")
+            print(f"game number: {dataset.stats['n_games']}, % of games not ties: {round(1 - (dataset.stats["n_ties"] / dataset.stats['n_games']), 3)}")
         
 if __name__ == "__main__":
     main()
