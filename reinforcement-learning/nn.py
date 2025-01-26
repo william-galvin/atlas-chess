@@ -11,8 +11,7 @@ from atlas_chess import mcts_search, Nnue, Board
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# import torch.multiprocessing
-# torch.multiprocessing.set_sharing_strategy('file_system')
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 torch.set_default_dtype(torch.float32) 
 
@@ -73,7 +72,6 @@ class InfiniteGamesDataset(torch.utils.data.IterableDataset):
     def __init__(self, nn, workers=None):
         self.nn = nn
         self.n_positions = 0
-        self.pgn = ""
 
         self.workers = workers or os.cpu_count() // 2
         self.queue = torch.multiprocessing.Manager().Queue()
@@ -88,10 +86,6 @@ class InfiniteGamesDataset(torch.utils.data.IterableDataset):
                 InfiniteGamesDataset.generate, 
                 (self.nn, self.queue, self.workers, self.stats)
             )
-
-    # def __del__(self):
-    #     self.pool.terminate()
-    #     self.pool.join()
 
     def generate(nn, queue, workers, statistics):
         torch.set_num_threads(1)
@@ -133,23 +127,7 @@ class InfiniteGamesDataset(torch.utils.data.IterableDataset):
     def __iter__(self):
         while True:
             yield self.queue.get()
-            # game, pgn = self.queue.get()
-            # self.n_games += 1
-            # self.pgn = pgn
 
-            # self.n_ties += abs(game[0][-1])
-            # for (position, moves, chosen, winner) in game:
-            #     self.n_positions += 1
-            #     board = Board(position)
-            #     X = torch.tensor(Nnue.features(board).reshape(1, 40_960 * 2))
-            #     Y = torch.tensor([winner], dtype=torch.float32)
-            #     for move, prob in moves:
-            #         board.push(move)
-            #         X = torch.cat([X, torch.tensor(Nnue.features(board).reshape(1, 40_960 * 2))], dim=0)
-            #         Y = torch.cat([Y, torch.tensor([prob], dtype=torch.float32)], dim=0)
-            #         board.pop()
-            #     yield X, Y
-                
 leaky_relu = lambda x: torch.max(0.05 * x, x)
 
 def layer_norm(x: torch.Tensor):
@@ -168,7 +146,7 @@ def play_game(board, max_moves=75, c=1.5, taus=(1, 0.1), tau_switch=30, depth=80
 
         moves = mcts_search(board, c, tau, depth)
 
-        scores = np.array([score for (m, score) in moves])
+        scores = np.array([score if score == score else 0.0 for (m, score) in moves]) # check for nans?
         # perturb for better sampling
         scores += np.random.rand(*scores.shape) * 0.15
 
@@ -238,6 +216,7 @@ def get_stockfish_correlation(nn):
     nn.eval()
     sf = []
     us = []
+    c = []
     with open("test_data/random_evals_1000.csv") as f:
         lines = f.readlines()
     for line in lines:
@@ -245,10 +224,11 @@ def get_stockfish_correlation(nn):
         sf.append(int(sf_eval))
         board = Board(fen)
         color = 1 if board.turn() == "white" else -1
+        c.append(max(0, color))
         nn.nnue.update_weights(board)
         us.append(board.forward() * color)
 
-    plt.scatter(x=sf, y=us)
+    plt.scatter(x=sf, y=us, c=c)
     plt.xlabel("stockfish")
     plt.ylabel("atlas")
 
@@ -264,6 +244,21 @@ def batch_collate(batch):
         torch.cat([Y for (X, Y) in batch], dim=0)
     )
 
+def get_norm(nn, grad=False):
+    total_norm = 0
+    for p in nn.parameters():
+        if grad:
+            if p.grad is not None:
+                param_norm = p.grad.detach().data.norm(2)
+            else:
+                continue  # Skip if no gradient is available
+        else:
+            param_norm = p.detach().norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
+
+
 def main():
     if not os.path.exists("metrics"):
         os.mkdir("metrics")
@@ -278,8 +273,10 @@ def main():
         device = torch.device("cpu")
 
     print(f"*** device is {device} ***")
+    torch.set_default_device(device)
 
     nn = MCTS()
+    nn.to(device)
     nn.share_memory()
     torch.compile(nn)
 
@@ -290,7 +287,7 @@ def main():
     nn.nnue.update_weights(board)
 
     loss_fn = torch.nn.MSELoss()
-    optimizer = torch.optim.AdamW(nn.parameters(), lr=0.00005, weight_decay=0.025)
+    optimizer = torch.optim.AdamW(nn.parameters(), lr=0.00005, betas=(0.9, 0.95), weight_decay=0.01)
     
     torch.multiprocessing.set_start_method("spawn")
     dataset = InfiniteGamesDataset(nn)
@@ -298,12 +295,18 @@ def main():
     print("Num CPUs found:", os.cpu_count())
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        num_workers=2,
-        batch_size=64,
+        num_workers=0,
+        batch_size=32,
         collate_fn=batch_collate,
     )
 
     for (X, Y) in tqdm(dataloader):
+        if torch.isnan(X).any() or torch.isnan(Y).any():
+            print("Warning: data has NaNs")
+            continue
+
+        optimizer.zero_grad()
+
         X, Y = X.to(device), Y.to(device)
         y_hat = nn(X)
 
@@ -311,21 +314,31 @@ def main():
         y_hat = y_hat.reshape(-1)
 
         loss = loss_fn(Y, y_hat)
+        if torch.isnan(loss):
+            print("[WARNING] loss is NaN")
+            continue
         loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1)
         optimizer.step()
 
-        if dataset.stats["n_games"] % 100 == 0:
-            record_metrics({"loss": loss.item(), "not-ties": round(1 - (dataset.stats["n_ties"] / dataset.stats["n_games"]), 3)})
-            if dataset.stats["n_games"] % 1000 == 900:
+        if dataset.stats["n_games"] % 10 == 0:
+            record_metrics({
+                "loss": loss.item(),
+                "not-ties": round(1 - (dataset.stats["n_ties"] / dataset.stats["n_games"]), 3),
+                "grad-norm": get_norm(nn, grad=True),
+                "weight-norm": get_norm(nn, grad=False),
+            })
+            if dataset.stats["n_games"] % 100 == 0:
                 record_metrics({"stockfish_correlation": get_stockfish_correlation(nn)})
 
-            if dataset.stats["n_games"] % 2000 == 0:
+            if dataset.stats["n_games"] % 100 == 0:
                 torch.save(nn.state_dict(), "nn.checkpoint")
         
         if dataset.stats["n_games"] % 20 == 0:
             print()
-            print(dataset.pgn)
-            print(f"game number: {dataset.stats['n_games']}, % of games not ties: {round(1 - (dataset.stats["n_ties"] / dataset.stats['n_games']), 3)}")
+            print(dataset.stats["last_pgn"])
+            print(f"game number: {dataset.stats['n_games']}, % of games not ties: {round(1 - (dataset.stats['n_ties'] / dataset.stats['n_games']), 3)}")
         
 if __name__ == "__main__":
     main()
