@@ -6,6 +6,9 @@ import torch
 import numpy as np
 import gc
 import time
+import torch.distributed
+import torch.multiprocessing.spawn
+import atexit
 from tqdm import tqdm
 from atlas_chess import mcts_search, Nnue, Board
 import warnings
@@ -78,14 +81,14 @@ class InfiniteGamesDataset(torch.utils.data.IterableDataset):
         self.stats = torch.multiprocessing.Manager().dict()
         self.stats["n_games"] = 0
         self.stats["n_ties"] = 0
-        pool = torch.multiprocessing.Pool(processes=self.workers)
+        # pool = torch.multiprocessing.Pool(processes=self.workers)
 
-        print(f"made pool with {self.workers} workers")
-        for worker in range(self.workers):
-            pool.apply_async(
-                InfiniteGamesDataset.generate, 
-                (self.nn, self.queue, self.workers, self.stats)
-            )
+        # print(f"made pool with {self.workers} workers")
+        # for worker in range(self.workers):
+        #     pool.apply_async(
+        #         InfiniteGamesDataset.generate, 
+        #         (self.nn, self.queue, self.workers, self.stats)
+        #     )
 
     def generate(nn, queue, workers, statistics):
         torch.set_num_threads(1)
@@ -126,7 +129,34 @@ class InfiniteGamesDataset(torch.utils.data.IterableDataset):
 
     def __iter__(self):
         while True:
-            yield self.queue.get()
+            board = Board()
+            self.nn.nnue.update_weights(board)
+            
+            try:
+                game = play_game(
+                    board, 
+                    depth=np.random.randint(200, 800), 
+                    max_moves=300
+                )
+
+                self.stats["n_games"] += 1
+                self.stats["n_ties"] += abs(game[0][-1])
+                self.stats["last_pgn"] = pgn(game)
+
+                for (position, moves, chosen, winner) in game:
+                    board = Board(position)
+                    X = torch.tensor(Nnue.features(board).reshape(1, 40_960 * 2))
+                    Y = torch.tensor([winner], dtype=torch.float32)
+                    for move, prob in moves:
+                        board.push(move)
+                        X = torch.cat([X, torch.tensor(Nnue.features(board).reshape(1, 40_960 * 2))], dim=0)
+                        Y = torch.cat([Y, torch.tensor([prob], dtype=torch.float32)], dim=0)
+                        board.pop()
+                    yield (X, Y)
+
+            except Exception as e:
+                print("[WARNING] Game failed to complete: ", str(e))
+                pass
 
 leaky_relu = lambda x: torch.max(0.05 * x, x)
 
@@ -258,44 +288,29 @@ def get_norm(nn, grad=False):
     total_norm = total_norm ** 0.5
     return total_norm
 
+def train(rank, world_size, device):
+    torch.distributed.init_process_group(backend="gloo", rank=rank, world_size=world_size)
 
-def main():
-    if not os.path.exists("metrics"):
-        os.mkdir("metrics")
-    if os.path.exists("metrics/metrics.json"):
-        os.remove("metrics/metrics.json")
-
-    if torch.backends.mps.is_available():
-        device = torch.device("cpu")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
-
-    print(f"*** device is {device} ***")
-    torch.set_default_device(device)
+    torch.set_num_threads(1)
 
     nn = MCTS()
     nn.to(device)
-    nn.share_memory()
     torch.compile(nn)
 
-    total_params = sum(p.numel() for p in nn.parameters() if p.requires_grad)
-    print(f"--- trainable parameters: {total_params:,} ---")
+    ddp_nn = torch.nn.parallel.DistributedDataParallel(nn)
 
-    board = Board()
-    nn.nnue.update_weights(board)
+    if rank == 0:
+        total_params = sum(p.numel() for p in nn.parameters() if p.requires_grad)
+        print(f"--- trainable parameters: {total_params:,} ---")
+
+    dataset = InfiniteGamesDataset(nn, workers=1)
 
     loss_fn = torch.nn.MSELoss()
     optimizer = torch.optim.AdamW(nn.parameters(), lr=0.00005, betas=(0.9, 0.95), weight_decay=0.01)
-    
-    torch.multiprocessing.set_start_method("spawn")
-    dataset = InfiniteGamesDataset(nn)
 
-    print("Num CPUs found:", os.cpu_count())
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        num_workers=0,
+        num_workers=2,
         batch_size=32,
         collate_fn=batch_collate,
     )
@@ -308,7 +323,7 @@ def main():
         optimizer.zero_grad()
 
         X, Y = X.to(device), Y.to(device)
-        y_hat = nn(X)
+        y_hat = ddp_nn(X)
 
         Y = Y.reshape(-1)
         y_hat = y_hat.reshape(-1)
@@ -322,23 +337,57 @@ def main():
         torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1)
         optimizer.step()
 
-        if dataset.stats["n_games"] % 10 == 0:
-            record_metrics({
-                "loss": loss.item(),
-                "not-ties": round(1 - (dataset.stats["n_ties"] / dataset.stats["n_games"]), 3),
-                "grad-norm": get_norm(nn, grad=True),
-                "weight-norm": get_norm(nn, grad=False),
-            })
-            if dataset.stats["n_games"] % 100 == 0:
-                record_metrics({"stockfish_correlation": get_stockfish_correlation(nn)})
+        if rank == 0:
+            if dataset.stats["n_games"] % 10 == 0:
+                record_metrics({
+                    "loss": loss.item(),
+                    "not-ties": round(1 - (dataset.stats["n_ties"] / dataset.stats["n_games"]), 3),
+                    "grad-norm": get_norm(nn, grad=True),
+                    "weight-norm": get_norm(nn, grad=False),
+                })
+                if dataset.stats["n_games"] % 100 == 0:
+                    record_metrics({"stockfish_correlation": get_stockfish_correlation(nn)})
 
-            if dataset.stats["n_games"] % 100 == 0:
-                torch.save(nn.state_dict(), "nn.checkpoint")
+                if dataset.stats["n_games"] % 100 == 0:
+                    torch.save(nn.state_dict(), "nn.checkpoint")
+            
+            if dataset.stats["n_games"] % 20 == 0:
+                print()
+                print(dataset.stats["last_pgn"])
+                print(f"game number: {dataset.stats['n_games']}, % of games not ties: {round(1 - (dataset.stats['n_ties'] / dataset.stats['n_games']), 3)}")
         
-        if dataset.stats["n_games"] % 20 == 0:
-            print()
-            print(dataset.stats["last_pgn"])
-            print(f"game number: {dataset.stats['n_games']}, % of games not ties: {round(1 - (dataset.stats['n_ties'] / dataset.stats['n_games']), 3)}")
-        
+        torch.distributed.barrier()        
+
+def main():
+    if not os.path.exists("metrics"):
+        os.mkdir("metrics")
+    if os.path.exists("metrics/metrics.json"):
+        os.remove("metrics/metrics.json")
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+    print(f"--- device is {device} ---")
+    torch.set_default_device(device)
+
+    torch.multiprocessing.set_start_method("spawn", force=True)
+
+    cpus = os.cpu_count()
+    world_size = cpus // 2
+    print(f"Num CPUs found: {cpus}, using {world_size} world size")
+
+    torch.multiprocessing.spawn(train, args=(world_size, device), nprocs=world_size, join=True)
+
+
+def cleanup():
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
+
+atexit.register(cleanup)
+
 if __name__ == "__main__":
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "12356"
     main()
